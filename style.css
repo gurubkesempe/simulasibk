@@ -257,6 +257,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .search-dd-name{ font-weight:700; font-size:13.5px; color:var(--ink); }
 .search-dd-sub{ font-size:11.5px; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .search-dd-item i{ color:var(--ink-faint); font-size:13px; }
+.search-dd-actions{ display:flex; gap:6px; flex-shrink:0; }
+
+/* ============ SISWA PICKER (kombobox pencarian siswa di form) ============ */
+.siswa-picker{ position:relative; }
+.siswa-picker-dropdown{ left:0; right:0; }
 
 /* ============ IMPORT NOTE ============ */
 .import-note{ margin:-8px 0 16px; font-size:12.5px; }
