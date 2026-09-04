@@ -267,14 +267,17 @@ function renderSearchDropdown(q){
   } else {
     dd.innerHTML = matchSiswa.map(s => {
       const c = countsFor(s.ID);
-      return `<button type="button" class="search-dd-item" data-goto-siswa="${s.ID}">
+      return `<div class="search-dd-item">
         <span class="avatar-ring" style="width:28px;height:28px;font-size:10.5px;background:${colorFromString(s.Nama)}">${initials(s.Nama)}</span>
         <span class="search-dd-info">
           <span class="search-dd-name">${s.Nama}</span>
           <span class="search-dd-sub">${s.Kelas||'-'} · NIS ${s.NIS||'-'} ${c.pelanggaran?`· ${c.pelanggaran} pelanggaran`:''} ${c.absensiAlpa?`· ${c.absensiAlpa}x alpa`:''}</span>
         </span>
-        <i class="fa-solid fa-file-lines"></i>
-      </button>`;
+        <span class="search-dd-actions">
+          <button type="button" class="icon-btn-sm" data-quick-absensi="${s.ID}" title="Catat Absensi"><i class="fa-solid fa-calendar-check"></i></button>
+          <button type="button" class="icon-btn-sm" data-goto-siswa="${s.ID}" title="Lihat Laporan"><i class="fa-solid fa-file-lines"></i></button>
+        </span>
+      </div>`;
     }).join('');
   }
   dd.classList.add('open');
@@ -282,15 +285,77 @@ function renderSearchDropdown(q){
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-goto-siswa]');
-  if (!btn) return;
-  const id = btn.dataset.gotoSiswa;
-  hideSearchDropdown();
-  $('#globalSearch').value = '';
-  goToPage('laporan');
-  $('#reportType').value = 'individu';
-  $('#reportType').dispatchEvent(new Event('change'));
-  $('#reportSiswa').value = id;
-  $('#btnGenerateReport').click();
+  if (btn){
+    const id = btn.dataset.gotoSiswa;
+    hideSearchDropdown();
+    $('#globalSearch').value = '';
+    goToPage('laporan');
+    $('#reportType').value = 'individu';
+    $('#reportType').dispatchEvent(new Event('change'));
+    $('#reportSiswa').value = id;
+    $('#btnGenerateReport').click();
+    return;
+  }
+  const absBtn = e.target.closest('[data-quick-absensi]');
+  if (absBtn){
+    const id = absBtn.dataset.quickAbsensi;
+    hideSearchDropdown();
+    $('#globalSearch').value = '';
+    goToPage('absensi');
+    openForm('absensi', null, { SiswaID: id });
+  }
+});
+
+/* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
+function siswaPickerFilter(query){
+  const q = (query||'').trim().toLowerCase();
+  let list = STATE.siswa;
+  if (currentPage === 'absensi'){
+    const kelas = $('#filterKelasAbsensi').value;
+    if (kelas) list = list.filter(s => s.Kelas === kelas);
+  }
+  return list.filter(s => !q ||
+    (s.Nama||'').toLowerCase().includes(q) ||
+    (s.NIS||'').toString().toLowerCase().includes(q) ||
+    (s.Kelas||'').toLowerCase().includes(q)
+  ).slice(0, 50);
+}
+function siswaPickerRenderDropdown(wrap, query){
+  const dd = wrap.querySelector('.siswa-picker-dropdown');
+  const matches = siswaPickerFilter(query);
+  dd.innerHTML = matches.length ? matches.map(s => `
+      <button type="button" class="search-dd-item" data-pick-siswa="${s.ID}">
+        <span class="avatar-ring" style="width:26px;height:26px;font-size:10px;background:${colorFromString(s.Nama)}">${initials(s.Nama)}</span>
+        <span class="search-dd-info"><span class="search-dd-name">${s.Nama}</span><span class="search-dd-sub">${s.Kelas||'-'} · NIS ${s.NIS||'-'}</span></span>
+      </button>`).join('')
+    : '<div class="search-dd-empty">Siswa tidak ditemukan.</div>';
+  dd.classList.add('open');
+}
+document.addEventListener('input', e => {
+  if (!e.target.classList.contains('siswa-picker-input')) return;
+  const wrap = e.target.closest('.siswa-picker');
+  wrap.querySelector('input[type=hidden]').value = '';
+  siswaPickerRenderDropdown(wrap, e.target.value);
+});
+document.addEventListener('focusin', e => {
+  if (!e.target.classList.contains('siswa-picker-input')) return;
+  const wrap = e.target.closest('.siswa-picker');
+  siswaPickerRenderDropdown(wrap, e.target.value);
+});
+document.addEventListener('click', e => {
+  const pickBtn = e.target.closest('[data-pick-siswa]');
+  if (pickBtn && pickBtn.closest('.siswa-picker-dropdown')){
+    const wrap = pickBtn.closest('.siswa-picker');
+    const s = siswaById(pickBtn.dataset.pickSiswa);
+    if (!s) return;
+    wrap.querySelector('input[type=hidden]').value = s.ID;
+    wrap.querySelector('.siswa-picker-input').value = `${s.Nama} — ${s.Kelas||'-'}`;
+    wrap.querySelector('.siswa-picker-dropdown').classList.remove('open');
+    return;
+  }
+  $all('.siswa-picker-dropdown.open').forEach(dd => {
+    if (!dd.closest('.siswa-picker').contains(e.target)) dd.classList.remove('open');
+  });
 });
 
 /* ---------------- DASHBOARD ---------------- */
@@ -707,13 +772,15 @@ const FORM_CONFIG = {
 };
 
 /* ---------------- MODAL FORM ---------------- */
-function openForm(type, id){
+function openForm(type, id, prefill){
   const cfg = FORM_CONFIG[type];
   const existing = id ? STATE[type].find(o => String(o.ID)===String(id)) : null;
   $('#modalTitle').textContent = (existing ? 'Edit ' : 'Tambah ') + cfg.title;
 
   const fieldsHtml = cfg.fields.map(f => {
-    const val = existing ? (existing[f.key] ?? '') : (typeof f.default==='function' ? f.default() : '');
+    const val = existing ? (existing[f.key] ?? '')
+      : (prefill && prefill[f.key] !== undefined ? prefill[f.key]
+      : (typeof f.default==='function' ? f.default() : ''));
     const wrapClass = 'field' + (f.full ? ' full' : '');
     if (f.type === 'select'){
       return `<div class="${wrapClass}"><label>${f.label}</label>
@@ -723,11 +790,14 @@ function openForm(type, id){
         </select></div>`;
     }
     if (f.type === 'select-siswa'){
+      const selSiswa = val ? siswaById(val) : null;
+      const displayVal = selSiswa ? `${selSiswa.Nama} — ${selSiswa.Kelas||'-'}` : '';
       return `<div class="${wrapClass}"><label>${f.label}</label>
-        <select name="${f.key}" ${f.required?'required':''}>
-          <option value="">Pilih siswa...</option>
-          ${siswaSelectOptions(val)}
-        </select></div>`;
+        <div class="siswa-picker">
+          <input type="text" class="siswa-picker-input" autocomplete="off" placeholder="Ketik nama, NIS, atau kelas siswa..." value="${displayVal}" />
+          <input type="hidden" name="${f.key}" value="${val||''}" />
+          <div class="siswa-picker-dropdown search-dropdown"></div>
+        </div></div>`;
     }
     if (f.type === 'textarea'){
       return `<div class="${wrapClass}"><label>${f.label}</label><textarea name="${f.key}">${val||''}</textarea></div>`;
@@ -769,6 +839,8 @@ function openForm(type, id){
       const s = siswaById(data.SiswaID);
       if (s){ data.Nama = s.Nama; data.Kelas = s.Kelas; }
     }
+    const missingSiswa = cfg.fields.find(f => f.type === 'select-siswa' && f.required && !data[f.key]);
+    if (missingSiswa){ toast(`${missingSiswa.label} wajib dipilih — ketik nama lalu klik salah satu hasil.`, 'error'); return; }
     showLoading(true);
     try{
       if (existing){
