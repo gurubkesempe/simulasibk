@@ -261,6 +261,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 /* ============ SISWA PICKER (kombobox pencarian siswa di form) ============ */
 .siswa-picker{ position:relative; }
+.siswa-picker-row{ display:flex; gap:8px; }
+.siswa-picker-kelas{ flex:0 0 128px; min-width:0; }
+.siswa-picker-input{ flex:1; min-width:0; }
 .siswa-picker-dropdown{ left:0; right:0; }
 
 /* ============ IMPORT NOTE ============ */
