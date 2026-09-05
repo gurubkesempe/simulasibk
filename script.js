@@ -307,13 +307,12 @@ document.addEventListener('click', e => {
 });
 
 /* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
-function siswaPickerFilter(query){
+function siswaPickerFilter(wrap, query){
   const q = (query||'').trim().toLowerCase();
+  const kelasSel = wrap.querySelector('.siswa-picker-kelas');
+  const kelas = kelasSel ? kelasSel.value : '';
   let list = STATE.siswa;
-  if (currentPage === 'absensi'){
-    const kelas = $('#filterKelasAbsensi').value;
-    if (kelas) list = list.filter(s => s.Kelas === kelas);
-  }
+  if (kelas) list = list.filter(s => s.Kelas === kelas);
   return list.filter(s => !q ||
     (s.Nama||'').toLowerCase().includes(q) ||
     (s.NIS||'').toString().toLowerCase().includes(q) ||
@@ -322,13 +321,13 @@ function siswaPickerFilter(query){
 }
 function siswaPickerRenderDropdown(wrap, query){
   const dd = wrap.querySelector('.siswa-picker-dropdown');
-  const matches = siswaPickerFilter(query);
+  const matches = siswaPickerFilter(wrap, query);
   dd.innerHTML = matches.length ? matches.map(s => `
       <button type="button" class="search-dd-item" data-pick-siswa="${s.ID}">
         <span class="avatar-ring" style="width:26px;height:26px;font-size:10px;background:${colorFromString(s.Nama)}">${initials(s.Nama)}</span>
         <span class="search-dd-info"><span class="search-dd-name">${s.Nama}</span><span class="search-dd-sub">${s.Kelas||'-'} · NIS ${s.NIS||'-'}</span></span>
       </button>`).join('')
-    : '<div class="search-dd-empty">Siswa tidak ditemukan.</div>';
+    : '<div class="search-dd-empty">Siswa tidak ditemukan untuk filter ini.</div>';
   dd.classList.add('open');
 }
 document.addEventListener('input', e => {
@@ -341,6 +340,15 @@ document.addEventListener('focusin', e => {
   if (!e.target.classList.contains('siswa-picker-input')) return;
   const wrap = e.target.closest('.siswa-picker');
   siswaPickerRenderDropdown(wrap, e.target.value);
+});
+document.addEventListener('change', e => {
+  if (!e.target.classList.contains('siswa-picker-kelas')) return;
+  const wrap = e.target.closest('.siswa-picker');
+  const input = wrap.querySelector('.siswa-picker-input');
+  wrap.querySelector('input[type=hidden]').value = '';
+  input.value = '';
+  siswaPickerRenderDropdown(wrap, '');
+  input.focus();
 });
 document.addEventListener('click', e => {
   const pickBtn = e.target.closest('[data-pick-siswa]');
@@ -792,9 +800,13 @@ function openForm(type, id, prefill){
     if (f.type === 'select-siswa'){
       const selSiswa = val ? siswaById(val) : null;
       const displayVal = selSiswa ? `${selSiswa.Nama} — ${selSiswa.Kelas||'-'}` : '';
+      const kelasOpts = uniqueClasses().map(c => `<option value="${c}">${c}</option>`).join('');
       return `<div class="${wrapClass}"><label>${f.label}</label>
         <div class="siswa-picker">
-          <input type="text" class="siswa-picker-input" autocomplete="off" placeholder="Ketik nama, NIS, atau kelas siswa..." value="${displayVal}" />
+          <div class="siswa-picker-row">
+            <select class="siswa-picker-kelas" title="Filter kelas"><option value="">Semua Kelas</option>${kelasOpts}</select>
+            <input type="text" class="siswa-picker-input" autocomplete="off" placeholder="Ketik nama, NIS, atau kelas siswa..." value="${displayVal}" />
+          </div>
           <input type="hidden" name="${f.key}" value="${val||''}" />
           <div class="siswa-picker-dropdown search-dropdown"></div>
         </div></div>`;
