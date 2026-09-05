@@ -260,11 +260,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .search-dd-actions{ display:flex; gap:6px; flex-shrink:0; }
 
 /* ============ SISWA PICKER (kombobox pencarian siswa di form) ============ */
-.siswa-picker{ position:relative; }
-.siswa-picker-row{ display:flex; gap:8px; }
-.siswa-picker-kelas{ flex:0 0 128px; min-width:0; }
-.siswa-picker-input{ flex:1; min-width:0; }
+.siswa-picker{ position:relative; min-width:0; }
+.siswa-picker-row{ display:flex; gap:8px; min-width:0; }
+.siswa-picker-kelas{ flex:0 0 130px; min-width:0; }
+.siswa-picker-input{ flex:1 1 auto; min-width:0; }
 .siswa-picker-dropdown{ left:0; right:0; }
+@media (max-width: 480px){
+  .siswa-picker-row{ flex-direction:column; }
+  .siswa-picker-kelas{ flex:1 1 auto; width:100%; }
+}
 
 /* ============ IMPORT NOTE ============ */
 .import-note{ margin:-8px 0 16px; font-size:12.5px; }
@@ -306,10 +310,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .modal-backdrop.open .modal{ transform:translateY(0); }
 .modal-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--border); }
 .modal-head h3{ font-size:16px; font-weight:700; }
-.modal-body{ padding:20px 22px; overflow-y:auto; }
+.modal-body{ padding:20px 22px; overflow-y:auto; overflow-x:hidden; }
 
-.form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
-.field{ display:flex; flex-direction:column; gap:6px; }
+.form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; min-width:0; }
+.field{ display:flex; flex-direction:column; gap:6px; min-width:0; }
 .field.full{ grid-column:1 / -1; }
 .field label{ font-size:12.5px; font-weight:700; color:var(--ink-soft); }
 .field input, .field select, .field textarea{
