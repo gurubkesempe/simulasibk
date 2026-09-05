@@ -717,7 +717,7 @@ const FORM_CONFIG = {
     title: 'Absensi Siswa',
     fields: [
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true },
+      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Status', label:'Status', type:'select', options:['Hadir','Sakit','Izin','Alpa'], required:true },
       { key:'Keterangan', label:'Keterangan', type:'textarea', full:true }
     ]
@@ -726,7 +726,7 @@ const FORM_CONFIG = {
     title: 'Pelanggaran Siswa',
     fields: [
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true },
+      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'JenisPelanggaran', label:'Jenis Pelanggaran', type:'text', required:true },
       { key:'Poin', label:'Poin Pelanggaran', type:'number' },
       { key:'Keterangan', label:'Keterangan', type:'textarea', full:true },
@@ -737,7 +737,7 @@ const FORM_CONFIG = {
     title: 'Sesi Konseling',
     fields: [
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true },
+      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Topik', label:'Topik', type:'text', required:true },
       { key:'Konselor', label:'Konselor / Guru BK', type:'text' },
       { key:'Masalah', label:'Uraian Masalah', type:'textarea', full:true },
@@ -749,7 +749,7 @@ const FORM_CONFIG = {
     title: 'Kolaborasi (Panggilan Ortu / Home Visit)',
     fields: [
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true },
+      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Jenis', label:'Jenis Kegiatan', type:'select', options:['Pemanggilan Orang Tua','Home Visit'], required:true },
       { key:'Petugas', label:'Petugas BK', type:'text' },
       { key:'Tujuan', label:'Tujuan Kegiatan', type:'textarea', full:true },
@@ -760,7 +760,7 @@ const FORM_CONFIG = {
     title: '7 Kebiasaan Anak Indonesia Hebat',
     fields: [
       { key:'Tanggal', label:'Hari, Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true },
+      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'BangunPagiPukul', label:'1. Bangun Pagi — Pukul', type:'text', placeholder:'contoh: 05.00' },
       { key:'IbadahSholat', label:'2. Beribadah — Sholat', type:'checkbox-group', options:['Subuh','Duhur','Ashar','Maghrib',"Isya'"], full:true },
       { key:'IbadahDhuha', label:'Sholat Dhuha', type:'checkbox' },
