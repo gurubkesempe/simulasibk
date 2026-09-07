@@ -881,6 +881,119 @@ function openForm(type, id, prefill){
 
 function openModal(){ $('#modalBackdrop').classList.add('open'); }
 function closeModal(){ $('#modalBackdrop').classList.remove('open'); }
+
+/* ---------------- ABSEN MASSAL PER KELAS ----------------
+   Fitur tambahan di halaman Absensi: centang beberapa siswa sekaligus (mis. satu
+   kelas masuk semua), pilih satu status, lalu simpan sekaligus. Tidak mengubah
+   tampilan/alur "Catat Absensi" satu-per-satu yang sudah ada — ini murni tombol
+   tambahan di sebelahnya. */
+function openBulkAbsensi(){
+  $('#modalTitle').textContent = 'Absen Massal per Kelas';
+  const today = new Date().toISOString().slice(0,10);
+  const kelasOpts = uniqueClasses().map(c => `<option value="${c}">${c}</option>`).join('');
+
+  $('#modalBody').innerHTML = `
+    <form id="bulkAbsensiForm">
+      <div class="form-grid">
+        <div class="field"><label>Tanggal</label><input type="date" id="bulkTanggal" value="${today}" required /></div>
+        <div class="field"><label>Kelas</label>
+          <select id="bulkKelas" required><option value="">Pilih kelas...</option>${kelasOpts}</select>
+        </div>
+        <div class="field"><label>Status untuk siswa yang dicentang</label>
+          <select id="bulkStatus" required>
+            <option value="">Pilih...</option>
+            <option value="Hadir">Hadir</option>
+            <option value="Sakit">Sakit</option>
+            <option value="Izin">Izin</option>
+            <option value="Alpa">Alpa</option>
+          </select>
+        </div>
+        <div class="field"><label>Keterangan (opsional, berlaku untuk semua yang dicentang)</label>
+          <input type="text" id="bulkKeterangan" placeholder="Contoh: -" />
+        </div>
+      </div>
+      <div class="bulk-list-head">
+        <label class="checkbox-pill"><input type="checkbox" id="bulkCheckAll" /> Pilih Semua</label>
+        <span class="muted" id="bulkCount">Pilih kelas dahulu untuk menampilkan daftar siswa.</span>
+      </div>
+      <div class="bulk-siswa-list" id="bulkSiswaList"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="bulkCancel">Batal</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Simpan Semua</button>
+      </div>
+    </form>`;
+
+  function updateBulkCount(){
+    const total = $all('.bulk-siswa-check').length;
+    const checked = $all('.bulk-siswa-check:checked').length;
+    $('#bulkCount').textContent = total ? `${checked} dari ${total} siswa dicentang` : 'Pilih kelas dahulu untuk menampilkan daftar siswa.';
+  }
+  function renderBulkList(kelas){
+    const list = $('#bulkSiswaList');
+    const siswaKelas = STATE.siswa.filter(s => s.Kelas === kelas).sort((a,b)=>(a.Nama||'').localeCompare(b.Nama||''));
+    if (!siswaKelas.length){
+      list.innerHTML = `<p class="muted">Tidak ada data siswa untuk kelas ini.</p>`;
+      $('#bulkCheckAll').checked = false;
+      updateBulkCount();
+      return;
+    }
+    list.innerHTML = siswaKelas.map(s => `
+      <label class="checkbox-pill bulk-item">
+        <input type="checkbox" class="bulk-siswa-check" value="${s.ID}" checked />
+        <span class="avatar-ring" style="width:24px;height:24px;font-size:9.5px;background:${colorFromString(s.Nama)}">${initials(s.Nama)}</span>
+        <span>${s.Nama} <span class="muted">· NIS ${s.NIS||'-'}</span></span>
+      </label>`).join('');
+    $('#bulkCheckAll').checked = true;
+    updateBulkCount();
+  }
+
+  $('#bulkKelas').addEventListener('change', e => renderBulkList(e.target.value));
+  $('#bulkCheckAll').addEventListener('change', e => {
+    $all('.bulk-siswa-check').forEach(cb => cb.checked = e.target.checked);
+    updateBulkCount();
+  });
+  $('#bulkSiswaList').addEventListener('change', e => {
+    if (e.target.classList.contains('bulk-siswa-check')) updateBulkCount();
+  });
+  $('#bulkCancel').addEventListener('click', closeModal);
+
+  $('#bulkAbsensiForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tanggal = $('#bulkTanggal').value;
+    const kelas = $('#bulkKelas').value;
+    const status = $('#bulkStatus').value;
+    const keterangan = $('#bulkKeterangan').value || '';
+    if (!tanggal || !kelas || !status){ toast('Tanggal, kelas, dan status wajib diisi.', 'error'); return; }
+    const checkedIds = $all('.bulk-siswa-check:checked').map(cb => cb.value);
+    if (!checkedIds.length){ toast('Centang minimal satu siswa.', 'error'); return; }
+
+    showLoading(true);
+    let saved = 0, skipped = 0;
+    try{
+      for (const id of checkedIds){
+        const already = STATE.absensi.some(a => String(a.SiswaID)===String(id) && a.Tanggal===tanggal);
+        if (already){ skipped++; continue; }
+        const s = siswaById(id);
+        const data = { Tanggal: tanggal, SiswaID: id, Nama: s?.Nama||'', Kelas: s?.Kelas||'', Status: status, Keterangan: keterangan };
+        const created = await adapter.create('absensi', data);
+        STATE.absensi.push({ ...data, ...created });
+        saved++;
+      }
+      closeModal();
+      populateClassFilters();
+      renderCurrentPage();
+      renderDashboard();
+      toast(`${saved} siswa dicatat sebagai ${status}${skipped ? `, ${skipped} dilewati (sudah ada catatan absensi tanggal ini)` : ''}.`, 'success');
+    }catch(err){
+      toast(err.message, 'error');
+    }finally{
+      showLoading(false);
+    }
+  });
+
+  openModal();
+}
+$('#btnBulkAbsensi').addEventListener('click', openBulkAbsensi);
 $('#modalClose').addEventListener('click', closeModal);
 $('#modalBackdrop').addEventListener('click', e => { if (e.target.id==='modalBackdrop') closeModal(); });
 
