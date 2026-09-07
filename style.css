@@ -297,6 +297,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .hb-table td{ border:1px solid #ccc; padding:8px 10px; font-size:12.5px; vertical-align:top; }
 .hb-table .hb-k{ font-weight:700; width:32%; background:#f7f7f7; }
 
+/* ============ ABSEN MASSAL ============ */
+.bulk-list-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 0 8px; flex-wrap:wrap; }
+.bulk-siswa-list{ display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; margin-bottom:16px; }
+.bulk-item{ width:100%; justify-content:flex-start; border-radius:8px; }
+.bulk-item .avatar-ring{ flex-shrink:0; }
+
 /* ============ MODAL ============ */
 .modal-backdrop{
   position:fixed; inset:0; background:rgba(20,26,34,.5); backdrop-filter:blur(2px);
