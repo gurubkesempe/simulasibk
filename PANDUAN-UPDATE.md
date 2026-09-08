@@ -96,3 +96,19 @@ Jadi urutan aman untuk update ke depan: cukup update file frontend (`index.html`
 `Code.gs` ke Apps Script Editor lalu **Deploy → Manage deployments → Edit → Deploy versi
 baru** (pakai deployment yang sama supaya URL tidak berubah). Data di Sheet tidak akan
 terpengaruh oleh kedua langkah ini.
+
+## 6. Update performa (pemuatan data & Absen Massal lebih cepat)
+
+Backend `Code.gs` di paket ini menambahkan dua aksi baru:
+- `getAllBatch` — mengambil semua jenis data (Siswa, Absensi, dst) dalam **satu**
+  permintaan ke server, bukan 6 permintaan terpisah seperti sebelumnya. Halaman jadi
+  lebih responsif saat pertama dibuka atau saat klik tombol refresh.
+- `bulkInsert` — dipakai fitur **Absen Massal per Kelas** untuk menyimpan semua siswa
+  yang dicentang dalam satu permintaan, bukan satu-per-satu. Untuk kelas isi 30 siswa,
+  ini bisa jauh lebih cepat dibanding sebelumnya.
+
+**Wajib:** tempel ulang isi `Code.gs` yang baru ke Apps Script Editor (langkah sama
+seperti bagian 1 di atas), lalu **Deploy → Manage deployments → Edit → Deploy** versi
+baru (pakai deployment yang sama supaya URL tidak berubah). Kalau langkah ini
+dilewati, fitur lama tetap jalan normal (tidak error), hanya saja peningkatan
+kecepatannya belum aktif.

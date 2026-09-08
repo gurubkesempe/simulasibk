@@ -304,6 +304,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .bulk-item{ width:100%; justify-content:flex-start; border-radius:8px; }
 .bulk-item .avatar-ring{ flex-shrink:0; }
 
+/* ============ BACKUP DATABASE (di modal Pengaturan) ============ */
+.backup-box{ padding:12px 14px; background:var(--surface-2); border-radius:var(--radius-sm); margin-bottom:16px; }
+
 /* ============ MODAL ============ */
 .modal-backdrop{
   position:fixed; inset:0; background:rgba(20,26,34,.5); backdrop-filter:blur(2px);

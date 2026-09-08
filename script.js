@@ -17,6 +17,15 @@ const RealAdapter = {
     if (!json.ok) throw new Error(json.error || 'Gagal mengambil data');
     return json.data;
   },
+  /* Ambil semua jenis data (Siswa, Absensi, dst) dalam SATU kali permintaan ke server,
+     jauh lebih cepat dibanding 6 permintaan terpisah karena Apps Script hanya perlu
+     "bangun" satu kali untuk melayani semuanya sekaligus. */
+  async getAllBatch(){
+    const res = await fetch(`${API_URL}?action=getAllBatch&token=${encodeURIComponent(API_TOKEN)}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal mengambil data');
+    return json.data;
+  },
   async create(type, data){
     const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'create', type, data, token: API_TOKEN }) });
     const json = await res.json();
@@ -40,6 +49,14 @@ const RealAdapter = {
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Gagal mengimpor data');
     return json.data;
+  },
+  /* Simpan banyak baris sekaligus dalam SATU permintaan (dipakai Absen Massal) —
+     jauh lebih cepat dibanding memanggil create() satu-satu per siswa. */
+  async bulkInsert(type, rows){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'bulkInsert', type, rows, token: API_TOKEN }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal menyimpan data massal');
+    return json.data;
   }
 };
 
@@ -48,6 +65,12 @@ const DemoAdapter = {
   read(type){ return JSON.parse(localStorage.getItem(this.key(type)) || '[]'); },
   write(type, arr){ localStorage.setItem(this.key(type), JSON.stringify(arr)); },
   async getAll(type){ return this.read(type); },
+  /* Padanan getAllBatch di RealAdapter, supaya kode loadAll() bisa sama untuk kedua mode. */
+  async getAllBatch(){
+    const out = {};
+    TYPES.forEach(t => out[t] = this.read(t));
+    return out;
+  },
   async create(type, data){
     const arr = this.read(type);
     data.ID = data.ID || (type.substring(0,3).toUpperCase() + '-' + Date.now().toString(36));
@@ -77,6 +100,14 @@ const DemoAdapter = {
     });
     this.write(type, arr);
     return { added, skipped, skippedKeys };
+  },
+  /* Padanan bulkInsert di RealAdapter — simpan banyak baris sekaligus. */
+  async bulkInsert(type, rows){
+    const arr = this.read(type);
+    const inserted = rows.map((r,i) => ({ ...r, ID: r.ID || (type.substring(0,3).toUpperCase() + '-' + Date.now().toString(36) + '-' + i) }));
+    inserted.forEach(row => arr.push(row));
+    this.write(type, arr);
+    return { inserted: inserted.length, rows: inserted };
   },
   seedIfEmpty(){
     if (this.read('siswa').length) return;
@@ -188,8 +219,8 @@ function isThisMonth(dateStr){
 async function loadAll(){
   showLoading(true);
   try{
-    const results = await Promise.all(TYPES.map(t => adapter.getAll(t)));
-    TYPES.forEach((t,i) => STATE[t] = results[i] || []);
+    const data = await adapter.getAllBatch();
+    TYPES.forEach(t => STATE[t] = data[t] || []);
     populateClassFilters();
     renderCurrentPage();
     renderDashboard();
@@ -1002,14 +1033,19 @@ function openBulkAbsensi(){
     showLoading(true);
     let saved = 0, skipped = 0;
     try{
-      for (const id of checkedIds){
+      const rowsToInsert = [];
+      checkedIds.forEach(id => {
         const already = STATE.absensi.some(a => String(a.SiswaID)===String(id) && a.Tanggal===tanggal);
-        if (already){ skipped++; continue; }
+        if (already){ skipped++; return; }
         const s = siswaById(id);
-        const data = { Tanggal: tanggal, SiswaID: id, Nama: s?.Nama||'', Kelas: s?.Kelas||'', Status: status, Keterangan: keterangan };
-        const created = await adapter.create('absensi', data);
-        STATE.absensi.push({ ...data, ...created });
-        saved++;
+        rowsToInsert.push({ Tanggal: tanggal, SiswaID: id, Nama: s?.Nama||'', Kelas: s?.Kelas||'', Status: status, Keterangan: keterangan });
+      });
+      if (rowsToInsert.length){
+        // Satu permintaan untuk semua siswa sekaligus (jauh lebih cepat dibanding satu-satu)
+        const result = await adapter.bulkInsert('absensi', rowsToInsert);
+        const insertedRows = (result && result.rows) || rowsToInsert;
+        STATE.absensi.push(...insertedRows);
+        saved = insertedRows.length;
       }
       closeModal();
       populateClassFilters();
@@ -1286,6 +1322,32 @@ $('#apiUrlSave').addEventListener('click', () => {
   note.after(a);
 })();
 
+/* ---------------- BACKUP DATABASE (Excel, satu file semua tabel) ----------------
+   Murni untuk jaga-jaga: unduh salinan semua data (Siswa, Absensi, Pelanggaran,
+   Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file .xlsx, satu tab per jenis
+   data. Tidak mengubah data apapun di Sheet — cuma membaca STATE yang sedang
+   dimuat lalu menuliskannya ke file baru di komputer pengguna. */
+const BACKUP_SHEET_NAMES = { siswa:'Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', kebiasaan:'Kebiasaan' };
+function downloadFullBackup(){
+  if (!TYPES.some(t => STATE[t] && STATE[t].length)){
+    toast('Belum ada data yang bisa di-backup. Muat ulang data terlebih dahulu.', 'error');
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  TYPES.forEach(type => {
+    const rows = (STATE[type] || []).map(r => {
+      // buang properti internal (mis. _row dari backend) agar file backup bersih
+      const { _row, ...clean } = r;
+      return clean;
+    });
+    const ws = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([['(Belum ada data)']]);
+    XLSX.utils.book_append_sheet(wb, ws, BACKUP_SHEET_NAMES[type] || type);
+  });
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  XLSX.writeFile(wb, `Backup_BKDigital_${stamp}.xlsx`);
+  toast('Backup berhasil diunduh.', 'success');
+}
+
 /* Settings button lets user change/reset API URL */
 function openSettings(){
   $('#modalTitle').textContent = 'Pengaturan Koneksi';
@@ -1298,10 +1360,16 @@ function openSettings(){
       <label>Token / Kata Sandi Akses</label>
       <input type="password" id="settingsApiToken" value="${API_TOKEN}" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
     </div>
+    <div class="field full backup-box">
+      <label>Backup Database</label>
+      <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
+      <button class="btn btn-ghost" id="settingsBackupBtn" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Backup (Excel)</button>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="settingsDemoBtn" type="button">Gunakan Mode Demo</button>
       <button class="btn btn-primary" id="settingsSaveBtn" type="button"><i class="fa-solid fa-check"></i> Simpan &amp; Muat Ulang</button>
     </div>`;
+  $('#settingsBackupBtn').addEventListener('click', downloadFullBackup);
   $('#settingsSaveBtn').addEventListener('click', () => {
     const val = $('#settingsApiUrl').value.trim();
     const tokenVal = $('#settingsApiToken').value.trim();

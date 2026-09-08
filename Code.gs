@@ -63,6 +63,13 @@ function doGet(e){
       var type = params.type;
       return jsonOut({ ok:true, data: readSheet(type) });
     }
+    if (action === 'getAllBatch'){
+      // Baca semua sheet sekaligus dalam SATU eksekusi — jauh lebih cepat
+      // dibanding client memanggil getAll 6x secara terpisah.
+      var out = {};
+      Object.keys(TYPE_SHEET).forEach(function(t){ out[t] = readSheet(t); });
+      return jsonOut({ ok:true, data: out });
+    }
     return jsonOut({ ok:false, error:'Aksi GET tidak dikenal.' });
   }catch(err){
     return jsonOut({ ok:false, error: err.message });
@@ -91,6 +98,10 @@ function doPost(e){
     if (action === 'importBulk'){
       var result = importBulk(type, body.rows || [], body.matchField || 'NIS');
       return jsonOut({ ok:true, data: result });
+    }
+    if (action === 'bulkInsert'){
+      var bulkResult = bulkInsert(type, body.rows || []);
+      return jsonOut({ ok:true, data: bulkResult });
     }
     return jsonOut({ ok:false, error:'Aksi POST tidak dikenal.' });
   }catch(err){
@@ -207,7 +218,9 @@ function deleteRow(type, id){
 
 /* Import massal dari Excel/CSV: HANYA menambahkan baris baru.
    Baris yang matchField-nya (misal NIS) sudah ada di sheet akan DILEWATI,
-   bukan ditimpa — data lama dijamin tidak berubah. */
+   bukan ditimpa — data lama dijamin tidak berubah.
+   Semua baris baru ditulis dalam SATU kali panggilan setValues (bukan appendRow
+   berulang) supaya cepat walau jumlah barisnya banyak. */
 function importBulk(type, rows, matchField){
   var sheet = getSheet(type);
   var headers = getHeaders(sheet);
@@ -224,6 +237,7 @@ function importBulk(type, rows, matchField){
     }
   }
   var added = 0, skipped = 0, skippedRows = [];
+  var matrix = [];
   rows.forEach(function(r){
     var keyVal = matchCol !== -1 ? String(r[matchField] || '').trim().toLowerCase() : '';
     if (matchCol !== -1 && keyVal && existingKeys[keyVal]){
@@ -231,12 +245,33 @@ function importBulk(type, rows, matchField){
       return;
     }
     if (!r.ID){ r.ID = (ID_PREFIX[type] || 'ID') + '-' + Date.now().toString(36).toUpperCase() + '-' + added; }
-    var rowValues = headers.map(function(h){ return (r[h] !== undefined && r[h] !== null) ? r[h] : ''; });
-    sheet.appendRow(rowValues);
+    matrix.push(headers.map(function(h){ return (r[h] !== undefined && r[h] !== null) ? r[h] : ''; }));
     if (matchCol !== -1 && keyVal) existingKeys[keyVal] = true;
     added++;
   });
+  if (matrix.length){
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, matrix.length, headers.length).setValues(matrix);
+  }
   return { added: added, skipped: skipped, skippedKeys: skippedRows };
+}
+
+/* Simpan banyak baris baru sekaligus dalam SATU kali panggilan setValues
+   (dipakai fitur Absen Massal). Jauh lebih cepat dibanding memanggil
+   createRow() berulang, karena hanya ada satu kali komunikasi ke Google Sheets
+   untuk menulis semua baris, bukan satu per siswa. */
+function bulkInsert(type, rows){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var matrix = rows.map(function(r, i){
+    if (!r.ID){ r.ID = (ID_PREFIX[type] || 'ID') + '-' + Date.now().toString(36).toUpperCase() + '-' + i; }
+    return headers.map(function(h){ return (r[h] !== undefined && r[h] !== null) ? r[h] : ''; });
+  });
+  if (matrix.length){
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, matrix.length, headers.length).setValues(matrix);
+  }
+  return { inserted: matrix.length, rows: rows };
 }
 
 /* ---------------- OUTPUT ---------------- */
