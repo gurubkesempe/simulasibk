@@ -428,6 +428,12 @@ document.addEventListener('click', e => {
 
 /* ---------------- DASHBOARD ---------------- */
 function renderDashboard(){
+  // Chart.js gagal (dan bisa "macet" sampai reload penuh) kalau dipaksa menggambar ke
+  // canvas yang sedang disembunyikan (halaman Dashboard tidak sedang aktif). Jadi kalau
+  // dipanggil dari halaman lain (mis. setelah simpan Absensi/Pelanggaran), cukup lewati —
+  // grafik akan otomatis digambar ulang dengan data terbaru begitu Dashboard dibuka lagi.
+  if (currentPage !== 'dashboard') return;
+
   $('#statSiswa').textContent = STATE.siswa.length;
   $('#statAlpa').textContent = STATE.absensi.filter(a => a.Status === 'Alpa' && isThisMonth(a.Tanggal)).length;
   $('#statPelanggaran').textContent = STATE.pelanggaran.filter(p => isThisMonth(p.Tanggal)).length;
