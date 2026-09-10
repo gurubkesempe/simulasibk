@@ -1,0 +1,829 @@
+/* ============================================================
+   VIEWS STYLES — Dashboard, Card Lists, Habits, Reports & Print
+   ============================================================ */
+
+/* ---------- 1. DASHBOARD ---------- */
+.dashboard-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dashboard-section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 2px 0;
+  font-family: var(--font-display);
+}
+
+.dashboard-section-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.dashboard-filter-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-filter-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-select {
+  min-width: 190px;
+  font-weight: 600;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1200px) {
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.stat-card {
+  background-color: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-subtle);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+  border-color: var(--border-muted);
+}
+
+.stat-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.stat-card--primary .stat-icon {
+  background-color: var(--brand-50);
+  color: var(--brand-700);
+  border: 1px solid var(--brand-200);
+}
+
+.stat-card--amber .stat-icon {
+  background-color: var(--accent-amber-bg);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber-border);
+}
+
+.stat-card--danger .stat-icon {
+  background-color: var(--accent-danger-bg);
+  color: var(--accent-danger);
+  border: 1px solid var(--accent-danger-border);
+}
+
+.stat-card--success .stat-icon {
+  background-color: var(--accent-success-bg);
+  color: var(--accent-success);
+  border: 1px solid var(--accent-success-border);
+}
+
+.stat-card--indigo .stat-icon {
+  background-color: #eef2ff;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+}
+
+.stat-card--teal .stat-icon {
+  background-color: #f0fdfa;
+  color: #0d9488;
+  border: 1px solid #99f6e4;
+}
+
+.stat-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 960px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card-head-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-head-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin: 2px 0 0 0;
+}
+
+/* Attendance Analytics Box */
+.attendance-analytics-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.attendance-rate-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--bg-surface-alt);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+.rate-circle-box {
+  background: var(--brand-50);
+  border: 1px solid var(--brand-200);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  text-align: center;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.rate-percentage {
+  font-size: 1.45rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--brand-700);
+  line-height: 1.1;
+}
+
+.rate-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--brand-800);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rate-desc-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.rate-desc-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.rate-desc-text {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Segmented Multi-color Attendance Bar */
+.attendance-bar-wrap {
+  width: 100%;
+}
+
+.attendance-bar {
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--border-subtle);
+  display: flex;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.bar-seg {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.bar-seg-hadir {
+  background-color: #059669;
+}
+
+.bar-seg-sakit {
+  background-color: #0284c7;
+}
+
+.bar-seg-izin {
+  background-color: #d97706;
+}
+
+.bar-seg-alpa {
+  background-color: #e11d48;
+}
+
+/* 4 Metric Cards Grid */
+.attendance-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .attendance-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.att-metric-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.att-metric-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-muted);
+}
+
+.att-metric-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.att-metric--hadir .att-metric-icon { color: #059669; }
+.att-metric--sakit .att-metric-icon { color: #0284c7; }
+.att-metric--izin .att-metric-icon { color: #d97706; }
+.att-metric--alpa .att-metric-icon { color: #e11d48; }
+
+.att-metric-info {
+  min-width: 0;
+}
+
+.att-metric-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.att-metric-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* At Risk Students List */
+.at-risk-container {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.at-risk-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.at-risk-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-surface-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.at-risk-item:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-muted);
+}
+
+.at-risk-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.at-risk-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.at-risk-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.at-risk-class {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.at-risk-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.at-risk-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-wa-risk {
+  padding: 6px 10px;
+  font-size: 1rem;
+}
+
+.btn-bimbing-risk {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  gap: 5px;
+}
+
+.at-risk-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.badge-xs {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+}
+
+/* Activity List */
+.activity-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.activity-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.activity-list li:last-child {
+  border-bottom: none;
+}
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.activity-list b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.activity-list .a-time {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+/* ---------- 2. CARD LIST (Konseling & Kolaborasi) ---------- */
+.card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.entry-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.entry-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.entry-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.entry-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar-ring {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #ffffff;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  box-shadow: var(--shadow-xs);
+}
+
+.entry-name {
+  font-weight: 600;
+  font-size: 0.928rem;
+  color: var(--text-primary);
+}
+
+.entry-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.entry-body {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  flex: 1;
+}
+
+.entry-body b {
+  color: var(--text-primary);
+}
+
+.entry-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.entry-date {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ---------- 3. 7 KEBIASAAN ANAK INDONESIA HEBAT ---------- */
+.habit-card .habit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin-top: 8px;
+}
+
+.habit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.habit-item i {
+  width: 14px;
+  margin-top: 2px;
+  color: var(--brand-600);
+  flex-shrink: 0;
+}
+
+.habit-label {
+  display: block;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.habit-value {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.habit-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.habit-note b {
+  color: var(--text-primary);
+}
+
+/* Formulir Cetak Kebiasaan */
+.hb-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+}
+
+.hb-table td {
+  border: 1px solid var(--border-default);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  vertical-align: top;
+}
+
+.hb-table .hb-k {
+  font-weight: 600;
+  width: 32%;
+  background-color: var(--bg-surface-subtle);
+}
+
+/* ---------- 4. BULK ATTENDANCE & BACKUP ---------- */
+.bulk-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0 8px;
+  flex-wrap: wrap;
+}
+
+.bulk-siswa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  margin-bottom: 16px;
+  background-color: var(--bg-surface-subtle);
+}
+
+.bulk-item {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 6px 10px;
+}
+
+.backup-box {
+  padding: 14px;
+  background-color: var(--bg-surface-subtle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 16px;
+}
+
+.import-note {
+  margin: -6px 0 16px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ---------- 5. REPORTS & PRINT ---------- */
+.report-preview {
+  font-size: 0.88rem;
+}
+
+.report-preview h2 {
+  font-size: 1.3rem;
+  margin-bottom: 4px;
+}
+
+.report-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.report-preview th, .report-preview td {
+  border: 1px solid var(--border-default);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 0.8rem;
+}
+
+.report-preview th {
+  background-color: var(--bg-surface-subtle);
+  font-weight: 600;
+}
+
+.report-head-line {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-top: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.report-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  background-color: var(--bg-surface-subtle);
+}
+
+.report-summary-item .label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.report-summary-item .value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Report Radar Chart */
+.report-radar-section {
+  margin: 24px 0 16px;
+  padding: 18px 20px;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  page-break-inside: avoid;
+}
+
+.report-radar-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  height: 300px;
+  margin: 12px auto 0;
+  display: flex;
+  justify-content: center;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #reportPreview, #reportPreview * {
+    visibility: visible;
+  }
+  #reportPreview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 20px;
+  }
+}
+
+/* Responsive Overrides */
+@media (max-width: 1080px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+  .card-list {
+    grid-template-columns: 1fr;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .habit-card .habit-grid {
+    grid-template-columns: 1fr;
+  }
+}

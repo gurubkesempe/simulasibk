@@ -1,27 +1,41 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>BK Digital — Sistem Bimbingan Konseling</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>BK Digital — Sistem Bimbingan Konseling Modern</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/src/styles/main.css">
 </head>
 <body>
 
+<!-- ============ INITIAL BLANK/LOADING SCREEN ============ -->
+<div id="initialLoader" class="initial-loader">
+  <div class="loader-spinner"></div>
+</div>
+
 <!-- ============ SPLASH / LOGIN API URL ============ -->
-<div id="setupScreen" class="setup-screen">
+<div id="setupScreen" class="setup-screen hidden">
   <div class="setup-card">
+    <div class="setup-logo">
+      <i class="fa-solid fa-graduation-cap"></i>
+    </div>
     <h1>BK Digital</h1>
-    <p class="setup-sub">Sistem Bimbingan &amp; Konseling Sekolah</p>
+    <p class="setup-sub">Sistem Bimbingan &amp; Konseling Sekolah Modern</p>
+    
     <label class="setup-label">Tempel URL Web App Google Apps Script</label>
     <input id="apiUrlInput" type="url" placeholder="https://script.google.com/macros/s/xxxxx/exec" />
+    
     <label class="setup-label">Token / Kata Sandi Akses</label>
     <input id="apiTokenInput" type="password" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
-    <button id="apiUrlSave" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk ke Dashboard</button>
-    <p class="setup-note">URL &amp; token ini hanya disimpan di browser kamu (localStorage), tidak dikirim ke mana-mana kecuali ke Web App Google Apps Script milikmu sendiri. Lihat README untuk cara membuatnya.</p>
+    
+    <button id="apiUrlSave" class="btn btn-primary btn-block">
+      <i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk ke Dashboard
+    </button>
+    <p class="setup-note">URL &amp; token ini hanya disimpan di browser kamu (localStorage), tidak dikirim ke mana-mana kecuali ke Web App Google Apps Script milikmu sendiri.</p>
   </div>
 </div>
 
@@ -31,7 +45,8 @@
   <!-- ---------- SIDEBAR (desktop) ---------- -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <span class="brand-text">BK Digital</span>
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="brand-text">BK Digital <span class="brand-badge">SaaS</span></span>
     </div>
     <nav class="nav">
       <a href="#dashboard" class="nav-item active" data-page="dashboard"><i class="fa-solid fa-chart-simple"></i><span>Dashboard</span></a>
@@ -56,7 +71,8 @@
       <div class="topbar-right">
         <div class="search-box">
           <i class="fa-solid fa-magnifying-glass"></i>
-          <input id="globalSearch" type="text" placeholder="Cari siswa, absensi, laporan..." />
+          <input id="globalSearch" type="text" placeholder="Cari siswa, NIS, kelas..." autocomplete="off" />
+          <span class="search-kbd">⌘K</span>
           <div class="search-dropdown" id="searchDropdown"></div>
         </div>
         <button class="icon-btn" id="refreshBtn" title="Muat ulang data"><i class="fa-solid fa-rotate"></i></button>
@@ -66,44 +82,203 @@
     <main class="content" id="content">
 
       <!-- ===== DASHBOARD ===== -->
+      <!-- ===== DASHBOARD ===== -->
       <section class="page active" id="page-dashboard">
-        <div class="stat-grid">
+        <!-- Dashboard Filter Toolbar -->
+        <div class="dashboard-toolbar">
+          <div class="dashboard-title-box">
+            <h2 class="dashboard-section-title">Ringkasan Analitik Bimbingan Konseling</h2>
+            <p class="dashboard-section-sub">Pantauan menyeluruh kedisiplinan, absensi, kesehatan mental, dan pembiasaan karakter siswa.</p>
+          </div>
+          <div class="dashboard-filter-box">
+            <label for="filterDashboardKelas" class="dashboard-filter-label"><i class="fa-solid fa-filter"></i> Filter Kelas:</label>
+            <select id="filterDashboardKelas" class="select dashboard-select">
+              <option value="">Semua Kelas (Global)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 6 KPI Stat Cards -->
+        <div class="stat-grid stat-grid-6">
           <div class="stat-card stat-card--primary">
             <div class="stat-icon"><i class="fa-solid fa-user-graduate"></i></div>
-            <div><div class="stat-value" id="statSiswa">0</div><div class="stat-label">Total Siswa</div></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statSiswa">0</div>
+              <div class="stat-label">Total Siswa</div>
+              <div class="stat-sub" id="statSiswaDetail">0 L · 0 P</div>
+            </div>
           </div>
-          <div class="stat-card stat-card--amber">
-            <div class="stat-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
-            <div><div class="stat-value" id="statAlpa">0</div><div class="stat-label">Alpa Bulan Ini</div></div>
+
+          <div class="stat-card stat-card--success">
+            <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statKehadiranRate">0%</div>
+              <div class="stat-label">Tingkat Kehadiran</div>
+              <div class="stat-sub" id="statHadirCount">0 Hadir Bulan Ini</div>
+            </div>
           </div>
+
           <div class="stat-card stat-card--danger">
             <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-            <div><div class="stat-value" id="statPelanggaran">0</div><div class="stat-label">Pelanggaran Bulan Ini</div></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statPerluPerhatian">0</div>
+              <div class="stat-label">Perlu Perhatian</div>
+              <div class="stat-sub text-danger font-medium"><i class="fa-solid fa-shield-virus"></i> Pantauan Khusus</div>
+            </div>
           </div>
-          <div class="stat-card stat-card--success">
+
+          <div class="stat-card stat-card--amber">
+            <div class="stat-icon"><i class="fa-solid fa-shield-halved"></i></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statPelanggaran">0</div>
+              <div class="stat-label">Pelanggaran</div>
+              <div class="stat-sub" id="statPoinPelanggaran">0 Total Poin</div>
+            </div>
+          </div>
+
+          <div class="stat-card stat-card--indigo">
             <div class="stat-icon"><i class="fa-solid fa-comments"></i></div>
-            <div><div class="stat-value" id="statKonseling">0</div><div class="stat-label">Sesi Konseling Bulan Ini</div></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statKonseling">0</div>
+              <div class="stat-label">Sesi Konseling</div>
+              <div class="stat-sub">Bulan Ini</div>
+            </div>
+          </div>
+
+          <div class="stat-card stat-card--teal">
+            <div class="stat-icon"><i class="fa-solid fa-handshake-angle"></i></div>
+            <div class="stat-content">
+              <div class="stat-value" id="statKolaborasi">0</div>
+              <div class="stat-label">Kolaborasi Ortu</div>
+              <div class="stat-sub">Bulan Ini</div>
+            </div>
           </div>
         </div>
 
+        <!-- Charts Grid Row 1 -->
         <div class="grid-2">
           <div class="card">
-            <div class="card-head"><h3>Tren Pelanggaran &amp; Absensi (6 Bulan)</h3></div>
-            <canvas id="chartTrend" height="220"></canvas>
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title"><i class="fa-solid fa-chart-line text-brand"></i> Tren Kasus, Absensi &amp; Konseling</h3>
+                <p class="card-head-sub">Perbandingan intensitas 6 bulan terakhir</p>
+              </div>
+            </div>
+            <canvas id="chartTrend" height="210"></canvas>
           </div>
           <div class="card">
-            <div class="card-head"><h3>Jenis Pelanggaran Terbanyak</h3></div>
-            <canvas id="chartPelanggaran" height="220"></canvas>
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title"><i class="fa-solid fa-chart-simple text-amber"></i> Top Kategori Pelanggaran</h3>
+                <p class="card-head-sub">Frekuensi pelanggaran paling sering terjadi</p>
+              </div>
+            </div>
+            <canvas id="chartPelanggaran" height="210"></canvas>
           </div>
         </div>
 
+        <!-- Charts Grid Row 2 -->
         <div class="grid-2">
           <div class="card">
-            <div class="card-head"><h3>Status Kehadiran</h3></div>
-            <canvas id="chartAbsensi" height="220"></canvas>
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title"><i class="fa-solid fa-chart-pie text-emerald"></i> Rekapitulasi &amp; Distribusi Kehadiran</h3>
+                <p class="card-head-sub">Tingkat kehadiran dan perincian status absensi siswa</p>
+              </div>
+              <span id="attendanceHealthBadge" class="badge badge-success">Disiplin Prima</span>
+            </div>
+
+            <div class="attendance-analytics-box">
+              <!-- Overall Rate Banner -->
+              <div class="attendance-rate-banner">
+                <div class="rate-circle-box">
+                  <div class="rate-percentage" id="attendanceRateVal">0%</div>
+                  <div class="rate-label">Kehadiran</div>
+                </div>
+                <div class="rate-desc-box">
+                  <div class="rate-desc-title" id="attendanceStatusTitle">Kondisi Sangat Baik</div>
+                  <div class="rate-desc-text" id="attendanceStatusDesc">Sebagian besar siswa hadir tepat waktu dan mengikuti kegiatan pembelajaran.</div>
+                </div>
+              </div>
+
+              <!-- Segmented Multi-color Progress Bar -->
+              <div class="attendance-bar-wrap">
+                <div class="attendance-bar" id="attendanceSegmentedBar">
+                  <div class="bar-seg bar-seg-hadir" style="width: 100%" title="Hadir"></div>
+                  <div class="bar-seg bar-seg-sakit" style="width: 0%" title="Sakit"></div>
+                  <div class="bar-seg bar-seg-izin" style="width: 0%" title="Izin"></div>
+                  <div class="bar-seg bar-seg-alpa" style="width: 0%" title="Alpa"></div>
+                </div>
+              </div>
+
+              <!-- 4 Detailed Metric Cards Grid -->
+              <div class="attendance-metrics-grid">
+                <div class="att-metric-card att-metric--hadir">
+                  <div class="att-metric-icon"><i class="fa-solid fa-circle-check"></i></div>
+                  <div class="att-metric-info">
+                    <div class="att-metric-val" id="attCountHadir">0</div>
+                    <div class="att-metric-label">Hadir (<span id="attPctHadir">0%</span>)</div>
+                  </div>
+                </div>
+
+                <div class="att-metric-card att-metric--sakit">
+                  <div class="att-metric-icon"><i class="fa-solid fa-heart-pulse"></i></div>
+                  <div class="att-metric-info">
+                    <div class="att-metric-val" id="attCountSakit">0</div>
+                    <div class="att-metric-label">Sakit (<span id="attPctSakit">0%</span>)</div>
+                  </div>
+                </div>
+
+                <div class="att-metric-card att-metric--izin">
+                  <div class="att-metric-icon"><i class="fa-solid fa-envelope-open-text"></i></div>
+                  <div class="att-metric-info">
+                    <div class="att-metric-val" id="attCountIzin">0</div>
+                    <div class="att-metric-label">Izin (<span id="attPctIzin">0%</span>)</div>
+                  </div>
+                </div>
+
+                <div class="att-metric-card att-metric--alpa">
+                  <div class="att-metric-icon"><i class="fa-solid fa-circle-xmark"></i></div>
+                  <div class="att-metric-info">
+                    <div class="att-metric-val" id="attCountAlpa">0</div>
+                    <div class="att-metric-label">Alpa (<span id="attPctAlpa">0%</span>)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>Aktivitas Terbaru</h3></div>
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title"><i class="fa-solid fa-award text-indigo"></i> Tingkat Keterlaksanaan 7 Kebiasaan</h3>
+                <p class="card-head-sub">% Siswa konsisten melaksanakan pembiasaan</p>
+              </div>
+            </div>
+            <canvas id="chartHabits" height="210"></canvas>
+          </div>
+        </div>
+
+        <!-- Analytical Widgets Grid Row 3: At-Risk Students & Live Activity -->
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title text-danger"><i class="fa-solid fa-bell"></i> Siswa Butuh Pantauan Khusus</h3>
+                <p class="card-head-sub">Siswa dengan akumulasi poin pelanggaran atau alpa tertinggi</p>
+              </div>
+            </div>
+            <div id="atRiskContainer" class="at-risk-container">
+              <ul class="at-risk-list" id="atRiskList"></ul>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3 class="card-head-title"><i class="fa-solid fa-bolt-lightning text-amber"></i> Aktivitas &amp; Log Bimbingan Terbaru</h3>
+                <p class="card-head-sub">Catatan mutakhir lintas modul BK</p>
+              </div>
+            </div>
             <ul class="activity-list" id="activityList"></ul>
           </div>
         </div>
@@ -122,15 +297,27 @@
             <button class="btn btn-primary" id="btnAddSiswa"><i class="fa-solid fa-plus"></i> Tambah Siswa</button>
           </div>
         </div>
-        <p class="muted import-note">Import Excel hanya <b>menambahkan siswa baru</b> (dicocokkan lewat NIS) — data siswa yang sudah tersimpan tidak akan berubah atau tertimpa. Input manual tetap bisa dipakai kapan saja.</p>
+        <p class="muted import-note"><i class="fa-solid fa-circle-info" style="margin-right:4px"></i> Import Excel hanya <b>menambahkan siswa baru</b> (dicocokkan lewat NIS). Data yang sudah ada tidak akan tertimpa.</p>
         <div class="card table-card">
           <div class="table-wrap">
             <table class="table" id="tableSiswa">
-              <thead><tr><th>NIS</th><th>Nama</th><th>Kelas</th><th>L/P</th><th>Orang Tua</th><th>No. HP Ortu</th><th>Status</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th style="width:110px">NIS</th>
+                  <th style="min-width:200px">Nama Lengkap</th>
+                  <th style="width:100px">Kelas</th>
+                  <th style="width:70px;text-align:center">L/P</th>
+                  <th style="min-width:160px">Orang Tua / Wali</th>
+                  <th style="width:140px">No. HP Ortu</th>
+                  <th style="width:140px">Status Catatan</th>
+                  <th style="width:100px;text-align:right">Aksi</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
           <div class="empty-state" style="display:none"><i class="fa-solid fa-user-graduate"></i><p>Belum ada data siswa. Klik "Tambah Siswa" untuk mulai.</p></div>
+          <div id="paginationSiswa" class="table-pagination"></div>
         </div>
       </section>
 
@@ -142,8 +329,10 @@
             <select id="filterKelasAbsensi" class="select"><option value="">Semua Kelas</option></select>
             <select id="filterStatusAbsensi" class="select">
               <option value="">Semua Status</option>
-              <option value="Hadir">Hadir</option><option value="Sakit">Sakit</option>
-              <option value="Izin">Izin</option><option value="Alpa">Alpa</option>
+              <option value="Hadir">Hadir</option>
+              <option value="Sakit">Sakit</option>
+              <option value="Izin">Izin</option>
+              <option value="Alpa">Alpa</option>
             </select>
           </div>
           <div class="filter-group">
@@ -151,15 +340,25 @@
             <button class="btn btn-primary" id="btnAddAbsensi"><i class="fa-solid fa-plus"></i> Catat Absensi</button>
           </div>
         </div>
-        <div class="card"><canvas id="chartAbsensiPage" height="90"></canvas></div>
+        <div class="card" style="margin-bottom:16px"><canvas id="chartAbsensiPage" height="90"></canvas></div>
         <div class="card table-card">
           <div class="table-wrap">
             <table class="table" id="tableAbsensi">
-              <thead><tr><th>Tanggal</th><th>Nama</th><th>Kelas</th><th>Status</th><th>Keterangan</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th style="width:130px">Tanggal</th>
+                  <th style="min-width:200px">Nama Siswa</th>
+                  <th style="width:100px">Kelas</th>
+                  <th style="width:120px">Status</th>
+                  <th style="min-width:180px">Keterangan</th>
+                  <th style="width:130px;text-align:right">Aksi</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
-          <div class="empty-state" style="display:none"><i class="fa-solid fa-calendar-check"></i><p>Belum ada data absensi.</p></div>
+          <div class="empty-state" style="display:none"><i class="fa-solid fa-calendar-check"></i><p>Belum ada data absensi tercatat.</p></div>
+          <div id="paginationAbsensi" class="table-pagination"></div>
         </div>
       </section>
 
@@ -175,11 +374,22 @@
         <div class="card table-card">
           <div class="table-wrap">
             <table class="table" id="tablePelanggaran">
-              <thead><tr><th>Tanggal</th><th>Nama</th><th>Kelas</th><th>Jenis</th><th>Poin</th><th>Penanganan</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th style="width:130px">Tanggal</th>
+                  <th style="min-width:200px">Nama Siswa</th>
+                  <th style="width:100px">Kelas</th>
+                  <th style="min-width:200px">Jenis Pelanggaran</th>
+                  <th style="width:110px;text-align:right">Poin</th>
+                  <th style="min-width:180px">Penanganan</th>
+                  <th style="width:100px;text-align:right">Aksi</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
-          <div class="empty-state" style="display:none"><i class="fa-solid fa-triangle-exclamation"></i><p>Belum ada data pelanggaran.</p></div>
+          <div class="empty-state" style="display:none"><i class="fa-solid fa-triangle-exclamation"></i><p>Belum ada data pelanggaran tercatat.</p></div>
+          <div id="paginationPelanggaran" class="table-pagination"></div>
         </div>
       </section>
 
@@ -218,8 +428,14 @@
             <select id="filterKelasKebiasaan" class="select"><option value="">Semua Kelas</option></select>
             <input type="date" id="filterTglKebiasaan" class="select" />
           </div>
-          <button class="btn btn-primary" id="btnAddKebiasaan"><i class="fa-solid fa-plus"></i> Isi Formulir Harian</button>
+          <div class="filter-group">
+            <button class="btn btn-ghost" id="btnDownloadTemplateKebiasaan" title="Unduh template Excel 7 Kebiasaan"><i class="fa-solid fa-file-arrow-down"></i> Template Excel</button>
+            <button class="btn btn-ghost" id="btnImportKebiasaan" title="Upload data 7 Kebiasaan dari file Excel"><i class="fa-solid fa-file-arrow-up"></i> Import Excel</button>
+            <input type="file" id="importKebiasaanFile" accept=".xlsx,.xls" class="hidden" />
+            <button class="btn btn-primary" id="btnAddKebiasaan"><i class="fa-solid fa-plus"></i> Isi Formulir Harian</button>
+          </div>
         </div>
+        <p class="muted import-note"><i class="fa-solid fa-circle-info" style="margin-right:4px"></i> Import Excel otomatis mencocokkan catatan dengan data siswa berdasarkan NIS atau Nama Siswa.</p>
         <div class="card-list" id="listKebiasaan"></div>
         <div class="empty-state" id="emptyKebiasaan" style="display:none"><i class="fa-solid fa-star"></i><p>Belum ada catatan 7 Kebiasaan Anak Indonesia Hebat.</p></div>
       </section>
@@ -227,9 +443,9 @@
       <!-- ===== LAPORAN ===== -->
       <section class="page" id="page-laporan">
         <div class="card">
-          <div class="card-head"><h3>Cetak Laporan</h3></div>
-          <p class="muted">Pilih jenis laporan dan rentang data, lalu cetak sebagai PDF (gunakan dialog cetak browser, pilih "Save as PDF").</p>
-          <div class="form-grid">
+          <div class="card-head"><h3>Cetak Laporan &amp; Rekapitulasi</h3></div>
+          <p class="muted">Pilih jenis laporan dan rentang data, lalu cetak sebagai dokumen PDF.</p>
+          <div class="form-grid" style="margin-top:16px">
             <div class="field">
               <label>Jenis Laporan</label>
               <select id="reportType" class="select select--full">
@@ -239,7 +455,7 @@
                 <option value="konseling">Rekap Konseling</option>
                 <option value="kolaborasi">Rekap Kolaborasi</option>
                 <option value="kebiasaan">Rekap 7 Kebiasaan Anak Indonesia Hebat</option>
-                <option value="individu">Laporan Per Siswa (Individu)</option>
+                <option value="individu">Laporan Perkembangan Per Siswa (Individu)</option>
               </select>
             </div>
             <div class="field" id="reportKelasField">
@@ -269,7 +485,7 @@
           </div>
           <button class="btn btn-primary" id="btnGenerateReport"><i class="fa-solid fa-file-pdf"></i> Buat &amp; Cetak Laporan</button>
         </div>
-        <div class="card" id="reportPreviewCard" style="display:none">
+        <div class="card" id="reportPreviewCard" style="display:none;margin-top:16px">
           <div id="reportPreview" class="report-preview"></div>
         </div>
       </section>
@@ -285,6 +501,7 @@
     <a href="#pelanggaran" class="bn-item" data-page="pelanggaran"><i class="fa-solid fa-triangle-exclamation"></i><span>Pelanggaran</span></a>
     <a href="#more" class="bn-item" id="bnMore"><i class="fa-solid fa-ellipsis"></i><span>Lainnya</span></a>
   </nav>
+  
   <div class="more-sheet" id="moreSheet">
     <div class="more-sheet-inner">
       <a href="#konseling" class="nav-item" data-page="konseling"><i class="fa-solid fa-comments"></i><span>Konseling</span></a>
@@ -302,7 +519,7 @@
   <div class="modal" id="modal">
     <div class="modal-head">
       <h3 id="modalTitle">Form</h3>
-      <button class="icon-btn" id="modalClose"><i class="fa-solid fa-xmark"></i></button>
+      <button class="icon-btn" id="modalClose" aria-label="Tutup"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body" id="modalBody"></div>
   </div>
@@ -314,8 +531,6 @@
 <!-- ============ LOADING OVERLAY ============ -->
 <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="script.js"></script>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
