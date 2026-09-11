@@ -19,9 +19,21 @@ function escapeHtml(value){
 }
 
 const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi','kebiasaan'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[] };
-let API_URL = localStorage.getItem('bk_api_url') || '';
+const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[], guru:[] };
+
+/* URL Web App bawaan — diisi SEKALI oleh Admin BK saat pertama kali men-deploy
+   situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
+   menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
+   bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
+const DEFAULT_API_URL = '';
+
+let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
+/* Peran yang sedang login: 'admin' (Guru BK, akses penuh) atau 'guru'
+   (Guru Mapel, dibatasi ke menu Pelanggaran & kelasnya sendiri saja). */
+let USER_ROLE = localStorage.getItem('bk_role') || 'admin';
+let GURU_NAMA = localStorage.getItem('bk_guru_nama') || '';
+let GURU_KELAS = JSON.parse(localStorage.getItem('bk_guru_kelas') || '[]');
 let currentPage = 'dashboard';
 let charts = {};
 
@@ -52,6 +64,15 @@ function renderSchoolProfile(){
 
 /* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
 const RealAdapter = {
+  /* Login Guru Mapel: hanya kirim username & password (tidak pernah URL/token
+     master), backend membalas sessionToken terbatas yang lalu dipakai sebagai
+     API_TOKEN untuk request-request berikutnya. */
+  async loginGuru(username, password){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginGuru', username, password }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal login');
+    return json.data;
+  },
   async getAll(type){
     // Token dikirim lewat body POST (bukan query string URL) supaya tidak
     // tersimpan di riwayat browser / log server.
@@ -128,6 +149,7 @@ const DemoAdapter = {
     const out = {};
     TYPES.forEach(t => out[t] = this.read(t));
     out.masterPelanggaran = this.read('masterPelanggaran');
+    out.guru = this.read('guru');
     out.pengaturan = await this.getSettings();
     return out;
   },
@@ -322,6 +344,7 @@ async function loadAll(){
     const data = await adapter.getAllBatch();
     TYPES.forEach(t => STATE[t] = data[t] || []);
     STATE.masterPelanggaran = data.masterPelanggaran || [];
+    STATE.guru = data.guru || [];
     applySettingsFromServer(data.pengaturan || {});
     populateClassFilters();
     renderCurrentPage();
@@ -1699,6 +1722,7 @@ $('#importSiswaFile').addEventListener('change', async (e) => {
 function enterApp(){
   $('#setupScreen').classList.add('hidden');
   $('#app').classList.remove('hidden');
+  applyRoleUI();
   renderSchoolProfile();
   loadAll();
 }
@@ -1707,12 +1731,104 @@ $('#apiUrlSave').addEventListener('click', () => {
   const tokenVal = $('#apiTokenInput').value.trim();
   if (!val){ toast('Masukkan URL Web App terlebih dahulu.', 'error'); return; }
   API_URL = val; API_TOKEN = tokenVal;
+  USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
   adapter = RealAdapter;
   localStorage.setItem('bk_api_url', API_URL);
   localStorage.setItem('bk_api_token', API_TOKEN);
+  localStorage.setItem('bk_role', 'admin');
+  localStorage.removeItem('bk_guru_nama');
+  localStorage.removeItem('bk_guru_kelas');
   localStorage.removeItem('bk_demo_mode');
   enterApp();
 });
+
+/* ---------------- LOGIN GURU MAPEL ----------------
+   Guru mapel hanya mengisi Username & Password — URL Web App sudah
+   otomatis terisi (DEFAULT_API_URL yang di-bake admin, atau tersisa
+   dari sesi sebelumnya di browser yang sama). Tidak ada field URL/token
+   yang perlu mereka sentuh sama sekali. */
+$('#showGuruLoginLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#adminSetupCard').classList.add('hidden');
+  $('#guruLoginCard').classList.remove('hidden');
+});
+$('#showAdminLoginLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#guruLoginCard').classList.add('hidden');
+  $('#adminSetupCard').classList.remove('hidden');
+});
+async function submitGuruLogin(){
+  const username = $('#guruUsernameInput').value.trim();
+  const password = $('#guruPasswordInput').value;
+  if (!username || !password){ toast('Username dan password wajib diisi.', 'error'); return; }
+  if (!API_URL){
+    toast('Aplikasi belum tersambung ke server sekolah. Hubungi Guru BK/admin.', 'error');
+    return;
+  }
+  const btn = $('#guruLoginBtn');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Masuk...';
+  try{
+    const session = await RealAdapter.loginGuru(username, password);
+    API_TOKEN = session.sessionToken;
+    USER_ROLE = 'guru';
+    GURU_NAMA = session.nama || '';
+    GURU_KELAS = session.kelas || [];
+    adapter = RealAdapter;
+    localStorage.setItem('bk_api_url', API_URL);
+    localStorage.setItem('bk_api_token', API_TOKEN);
+    localStorage.setItem('bk_role', 'guru');
+    localStorage.setItem('bk_guru_nama', GURU_NAMA);
+    localStorage.setItem('bk_guru_kelas', JSON.stringify(GURU_KELAS));
+    localStorage.removeItem('bk_demo_mode');
+    $('#guruPasswordInput').value = '';
+    enterApp();
+  }catch(err){
+    toast(err.message, 'error');
+  }finally{
+    btn.disabled = false; btn.innerHTML = originalLabel;
+  }
+}
+$('#guruLoginBtn').addEventListener('click', submitGuruLogin);
+$('#guruPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitGuruLogin(); });
+
+/* Tampilkan/sembunyikan menu sesuai peran yang login. Guru mapel hanya
+   melihat menu Pelanggaran; item nav lain, Pengaturan, dan tombol Kelola
+   Template disembunyikan. Ini murni tampilan — backend TETAP menolak akses
+   ke tipe data lain walau menu disembunyikan (lihat Code.gs). */
+function applyRoleUI(){
+  const isGuru = USER_ROLE === 'guru';
+  $all('.nav-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
+  $all('.bn-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
+  $('#settingsBtn').classList.toggle('hidden', isGuru);
+  $('#settingsBtnMobile').classList.toggle('hidden', isGuru);
+  $('#logoutBtn').classList.toggle('hidden', !isGuru);
+  $('#logoutBtnMobile').classList.toggle('hidden', !isGuru);
+  const mplBtn = $('#btnMasterPelanggaran');
+  if (mplBtn) mplBtn.classList.toggle('hidden', isGuru);
+  const badge = $('#guruBadge');
+  if (badge){
+    badge.classList.toggle('hidden', !isGuru);
+    badge.textContent = isGuru ? `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ''}` : '';
+  }
+  if (isGuru) goToPage('pelanggaran');
+}
+
+function logout(){
+  API_TOKEN = ''; USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
+  localStorage.removeItem('bk_api_token');
+  localStorage.removeItem('bk_role');
+  localStorage.removeItem('bk_guru_nama');
+  localStorage.removeItem('bk_guru_kelas');
+  $('#app').classList.add('hidden');
+  $('#setupScreen').classList.remove('hidden');
+  $('#adminSetupCard').classList.add('hidden');
+  $('#guruLoginCard').classList.remove('hidden');
+  $('#guruUsernameInput').value = '';
+  $('#guruPasswordInput').value = '';
+}
+$('#logoutBtn').addEventListener('click', logout);
+$('#logoutBtnMobile').addEventListener('click', () => { closeMoreSheet(); logout(); });
 
 /* demo mode link (added dynamically under the setup note) */
 (function addDemoLink(){
@@ -1845,6 +1961,11 @@ function openSettings(){
       <input type="password" id="settingsApiToken" value="${escapeHtml(API_TOKEN)}" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
     </div>
     <div class="field full backup-box">
+      <label>Akun Guru Mapel</label>
+      <p class="muted" style="margin:2px 0 10px">Buat akun Username &amp; Password untuk tiap guru mapel. Setelah login, guru hanya bisa melihat &amp; mencatat data Pelanggaran untuk kelas yang kamu tentukan di sini — tanpa perlu tahu URL Web App atau token.</p>
+      <button class="btn btn-ghost" id="settingsGuruAccountsBtn" type="button"><i class="fa-solid fa-users-gear"></i> Kelola Akun Guru Mapel</button>
+    </div>
+    <div class="field full backup-box">
       <label>Backup Database</label>
       <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
       <button class="btn btn-ghost" id="settingsBackupBtn" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Backup (Excel)</button>
@@ -1904,6 +2025,7 @@ function openSettings(){
   });
 
   // ---- Koneksi & backup ----
+  $('#settingsGuruAccountsBtn').addEventListener('click', () => openGuruAccounts());
   $('#settingsBackupBtn').addEventListener('click', downloadFullBackup);
   $('#settingsSaveBtn').addEventListener('click', () => {
     const val = $('#settingsApiUrl').value.trim();
@@ -1925,6 +2047,148 @@ function openSettings(){
 $('#settingsBtn').addEventListener('click', openSettings);
 $('#settingsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openSettings(); });
 
+/* ---------------- KELOLA AKUN GURU MAPEL ----------------
+   Admin/Guru BK menambah, mengedit, dan menghapus akun login guru mapel
+   dari sini. Kelas diketik dipisah koma (mis. "VII-A, VII-B") — itulah
+   satu-satunya kelas yang bisa dilihat/dicatat pelanggarannya oleh akun ini,
+   ditegakkan di server (lihat Code.gs), bukan cuma disembunyikan di tampilan. */
+function openGuruAccounts(){
+  $('#modalTitle').textContent = 'Kelola Akun Guru Mapel';
+  let editingId = null;
+
+  $('#modalBody').innerHTML = `
+    <p class="muted" style="margin:0 0 14px">Setiap akun di bawah bisa login (tanpa perlu tahu URL Web App/token) dan hanya melihat &amp; mencatat Pelanggaran untuk kelas yang kamu tulis di sini.</p>
+    <form id="guruAccountForm">
+      <div class="form-grid">
+        <div class="field"><label>Nama Guru</label>
+          <input type="text" id="gaNama" placeholder="Contoh: Budi Santoso, S.Pd" required />
+        </div>
+        <div class="field"><label>Username</label>
+          <input type="text" id="gaUsername" placeholder="Contoh: budi.santoso" required autocomplete="off" />
+        </div>
+        <div class="field"><label>Password</label>
+          <input type="text" id="gaPassword" placeholder="${'Isi/ganti password'}" />
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="gaStatus">
+            <option value="Aktif">Aktif</option>
+            <option value="Nonaktif">Nonaktif</option>
+          </select>
+        </div>
+        <div class="field full"><label>Kelas Tanggung Jawab</label>
+          <input type="text" id="gaKelas" placeholder="Contoh: VII-A, VII-B (pisahkan dengan koma)" required />
+        </div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:18px">
+        <button type="submit" class="btn btn-primary" id="gaSubmitBtn"><i class="fa-solid fa-plus"></i> Tambah Akun</button>
+        <button type="button" class="btn btn-ghost hidden" id="gaCancelEditBtn">Batal Edit</button>
+      </div>
+    </form>
+    <div class="bulk-siswa-list" id="gaList" style="max-height:280px"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="gaCloseBtn">Tutup</button>
+    </div>`;
+
+  function renderList(){
+    const list = $('#gaList');
+    const rows = STATE.guru.slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
+    if (!rows.length){
+      list.innerHTML = `<p class="muted" style="padding:8px">Belum ada akun Guru Mapel. Tambahkan lewat form di atas.</p>`;
+      return;
+    }
+    list.innerHTML = rows.map(g => `
+      <div class="bulk-item mpl-item">
+        <span class="mpl-info"><b>${escapeHtml(g.Nama||'-')}</b> <span class="muted">· @${escapeHtml(g.Username||'-')} · ${escapeHtml(g.Kelas||'-')} · ${escapeHtml(g.Status||'Aktif')}</span></span>
+        <span class="search-dd-actions">
+          <button type="button" class="icon-btn-sm" data-ga-edit="${escapeHtml(g.ID)}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" class="icon-btn-sm danger" data-ga-del="${escapeHtml(g.ID)}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </span>
+      </div>`).join('');
+  }
+  renderList();
+
+  $('#gaList').addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-ga-edit]');
+    const delBtn = e.target.closest('[data-ga-del]');
+    if (editBtn){
+      const g = STATE.guru.find(o => String(o.ID)===String(editBtn.dataset.gaEdit));
+      if (!g) return;
+      editingId = g.ID;
+      $('#gaNama').value = g.Nama || '';
+      $('#gaUsername').value = g.Username || '';
+      $('#gaPassword').value = '';
+      $('#gaPassword').placeholder = 'Kosongkan jika tidak ingin mengubah password';
+      $('#gaStatus').value = g.Status || 'Aktif';
+      $('#gaKelas').value = g.Kelas || '';
+      $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> Update Akun';
+      $('#gaCancelEditBtn').classList.remove('hidden');
+      $('#gaNama').focus();
+      return;
+    }
+    if (delBtn){
+      if (!confirm('Hapus akun guru mapel ini? Guru yang bersangkutan tidak akan bisa login lagi.')) return;
+      const id = delBtn.dataset.gaDel;
+      try{
+        await adapter.delete('guru', id);
+        STATE.guru = STATE.guru.filter(o => String(o.ID)!==String(id));
+        renderList();
+        toast('Akun guru mapel dihapus.', 'success');
+      }catch(err){
+        toast(err.message, 'error');
+      }
+    }
+  });
+
+  $('#gaCancelEditBtn').addEventListener('click', () => {
+    editingId = null;
+    $('#guruAccountForm').reset();
+    $('#gaPassword').placeholder = 'Isi/ganti password';
+    $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
+    $('#gaCancelEditBtn').classList.add('hidden');
+  });
+
+  $('#guruAccountForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nama = $('#gaNama').value.trim();
+    const username = $('#gaUsername').value.trim();
+    const password = $('#gaPassword').value;
+    const status = $('#gaStatus').value;
+    const kelas = $('#gaKelas').value.trim();
+    if (!nama || !username || !kelas){ toast('Nama, Username, dan Kelas wajib diisi.', 'error'); return; }
+    if (!editingId && !password){ toast('Password wajib diisi untuk akun baru.', 'error'); return; }
+    const btn = $('#gaSubmitBtn');
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
+    try{
+      const data = { Nama: nama, Username: username, Status: status, Kelas: kelas };
+      if (password) data.Password = password;
+      if (editingId){
+        const updated = await adapter.update('guru', editingId, data);
+        const idx = STATE.guru.findIndex(o => String(o.ID)===String(editingId));
+        if (idx > -1) STATE.guru[idx] = { ...STATE.guru[idx], ...updated, ...data, ID: editingId };
+        toast('Akun guru mapel diperbarui.', 'success');
+      } else {
+        const created = await adapter.create('guru', data);
+        STATE.guru.push({ ...data, ...created });
+        toast('Akun guru mapel ditambahkan.', 'success');
+      }
+      editingId = null;
+      $('#guruAccountForm').reset();
+      $('#gaPassword').placeholder = 'Isi/ganti password';
+      $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
+      $('#gaCancelEditBtn').classList.add('hidden');
+      renderList();
+    }catch(err){
+      toast(err.message, 'error');
+    }finally{
+      btn.disabled = false; btn.innerHTML = originalLabel;
+    }
+  });
+
+  $('#gaCloseBtn').addEventListener('click', openSettings);
+  openModal();
+}
+
 /* ---------------- MOBILE HAMBURGER (opens sidebar-equivalent: more sheet w/ full nav) ---------------- */
 $('#hamburgerBtn').addEventListener('click', openMoreSheet);
 
@@ -1932,9 +2196,23 @@ $('#hamburgerBtn').addEventListener('click', openMoreSheet);
 (function init(){
   if (localStorage.getItem('bk_demo_mode') === '1'){
     adapter = DemoAdapter; DemoAdapter.seedIfEmpty(); enterApp();
-  } else if (API_URL){
+    return;
+  }
+  if (API_URL && API_TOKEN){
+    // Ada sesi tersimpan (admin ATAU guru mapel yang sudah pernah login) —
+    // langsung masuk, applyRoleUI() di dalam enterApp() yang menentukan
+    // tampilannya sesuai USER_ROLE yang tersimpan.
     $('#apiUrlInput').value = API_URL;
     $('#apiTokenInput').value = API_TOKEN;
     adapter = RealAdapter; enterApp();
+    return;
+  }
+  // Belum ada sesi aktif -> tampilkan layar login. Kalau URL Web App sudah
+  // ter-bake (DEFAULT_API_URL diisi admin saat deploy), asumsikan mayoritas
+  // pengunjung adalah Guru Mapel dan langsung tampilkan form Username/Password
+  // itu duluan, supaya mereka tidak perlu klik "Login sebagai Guru Mapel" dulu.
+  if (DEFAULT_API_URL){
+    $('#adminSetupCard').classList.add('hidden');
+    $('#guruLoginCard').classList.remove('hidden');
   }
 })();

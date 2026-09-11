@@ -9,15 +9,18 @@ sudah tersimpan di Sheet kamu.**
 Update kali ini menambahkan penyimpanan **Profil Sekolah** (Nama Sekolah, Tahun
 Pelajaran, Logo) ke Google Sheet lewat sheet baru bernama **"Pengaturan"**, supaya
 identitas sekolah otomatis muncul lagi di perangkat/browser manapun — bukan cuma
-tersimpan di localStorage satu browser seperti sebelumnya.
+tersimpan di localStorage satu browser seperti sebelumnya. Update ini juga
+menambahkan **akun Guru Mapel** (lihat bagian 8) lewat sheet baru **"Guru"**.
 
 Karena itu, **Code.gs di Apps Script kamu wajib ditimpa ulang** dengan isi `Code.gs`
 yang ada di paket ini (langkah-langkahnya sama seperti bagian 1 di bawah). Kalau tidak
 diganti, tombol "Simpan Profil Sekolah" akan gagal dengan pesan error "Aksi POST tidak
-dikenal" karena backend lama belum mengenal aksi `saveSettings`.
+dikenal" karena backend lama belum mengenal aksi `saveSettings`, dan menu "Kelola Akun
+Guru Mapel" / login Guru Mapel juga belum akan berfungsi.
 
-Sheet "Pengaturan" akan otomatis dibuat sendiri oleh backend saat pertama kali kamu
-klik "Simpan Profil Sekolah" — tidak perlu dibuat manual.
+Sheet "Pengaturan" dan "Guru" akan otomatis dibuat sendiri oleh backend saat pertama
+kali dipakai (klik "Simpan Profil Sekolah" / tambah akun guru pertama) — tidak perlu
+dibuat manual.
 
 ## 1. Kenapa harus ganti Code.gs?
 
@@ -147,3 +150,60 @@ kalau memang belum ada di daftar baku.
 **Deploy → Manage deployments → Edit → Deploy** versi baru (deployment yang sama,
 supaya URL tidak berubah), baru kemudian ganti `index.html`, `script.js`,
 `style.css` di GitHub seperti biasa.
+
+## 8. Akun Guru Mapel — supaya tiap guru bisa input & pantau Pelanggaran sendiri
+
+Sekarang guru mapel bisa punya akun login sendiri, **tanpa perlu tahu URL Web App
+atau ACCESS_TOKEN sama sekali** — mereka cukup diberi Username & Password. Setelah
+login, tampilan mereka otomatis dikepras: cuma menu **Pelanggaran** yang muncul
+(untuk mencatat & memantau), dan hanya untuk kelas yang kamu tentukan sebagai
+tanggung jawabnya. Pembatasan ini ditegakkan di server (Code.gs), bukan cuma
+disembunyikan di tampilan — jadi walau guru iseng buka DevTools, tetap tidak bisa
+mengintip/mengubah data Siswa, Absensi, Konseling, dll di luar akses tersebut.
+
+### a) Sekali saja: isi URL Web App bawaan di `script.js`
+
+Supaya guru tidak perlu tempel URL Apps Script sendiri, buka `script.js`, cari baris:
+
+```js
+const DEFAULT_API_URL = '';
+```
+
+Isi dengan URL Web App kamu (yang sama seperti yang kamu pakai sendiri sebagai
+Admin/Guru BK), lalu commit ulang ke GitHub / upload ulang. URL ini **bukan
+rahasia** (tanpa token, URL saja tidak bisa dipakai mengambil data apapun),
+jadi aman ikut ter-commit ke repo publik. Kalau field ini dikosongkan, aplikasi
+tetap berfungsi seperti sebelumnya (Admin isi URL manual di layar setup).
+
+### b) Buat akun untuk tiap guru
+
+1. Login sebagai Admin/Guru BK seperti biasa → klik **Pengaturan** → **Kelola Akun
+   Guru Mapel**.
+2. Isi Nama, Username, Password, dan **Kelas Tanggung Jawab** (pisahkan dengan
+   koma kalau lebih dari satu kelas, contoh: `VII-A, VII-B`).
+3. Klik Tambah Akun. Ulangi untuk tiap guru.
+4. Bagikan **satu link** situs BK Digital yang sama ke semua guru (link yang sama
+   persis dengan yang kamu pakai), plus Username & Password masing-masing lewat
+   jalur pribadi (WhatsApp/japri), bukan digabung dengan link publiknya.
+
+Guru tinggal buka link tersebut → kalau `DEFAULT_API_URL` sudah diisi, layar login
+Guru Mapel (Username & Password saja) akan langsung muncul duluan — tidak ada field
+URL/token yang perlu mereka isi.
+
+### c) Beberapa catatan penting
+
+- Password di sini disimpan **apa adanya (plain text)** di sheet "Guru" untuk
+  kesederhanaan (sesuai isi kolom yang kamu ketik di menu Kelola Akun). Siapapun
+  yang bisa membuka Google Sheet database ini otomatis bisa melihatnya — jadi
+  jangan bagikan akses "Editor" ke Sheet database ke sembarang orang, dan sarankan
+  guru tidak memakai password yang sama dengan akun penting lain.
+- Sesi login guru otomatis kadaluarsa setelah **16 jam** — kalau tiba-tiba tidak
+  bisa menyimpan lagi, minta mereka login ulang.
+- Nonaktifkan akun (ubah Status jadi "Nonaktif") kalau seorang guru pindah tugas —
+  tidak perlu dihapus kalau masih mau menyimpan riwayatnya.
+- Backup Excel (`Unduh Backup`) **tidak pernah ikut membawa akun Guru/Password** —
+  hanya data Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, dan Kebiasaan.
+
+**Wajib:** tempel ulang `Code.gs` yang baru ke Apps Script Editor (bagian 1) lalu
+**Deploy → Manage deployments → Edit → Deploy** versi baru (deployment yang sama),
+baru kemudian ganti `index.html`, `script.js`, `style.css` di GitHub.
