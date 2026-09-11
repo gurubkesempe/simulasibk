@@ -19,7 +19,7 @@ function escapeHtml(value){
 }
 
 const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi','kebiasaan'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[] };
+const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[] };
 let API_URL = localStorage.getItem('bk_api_url') || '';
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
 let currentPage = 'dashboard';
@@ -127,6 +127,7 @@ const DemoAdapter = {
   async getAllBatch(){
     const out = {};
     TYPES.forEach(t => out[t] = this.read(t));
+    out.masterPelanggaran = this.read('masterPelanggaran');
     out.pengaturan = await this.getSettings();
     return out;
   },
@@ -224,6 +225,28 @@ const DemoAdapter = {
         IstirahatPukul:'21.00', ParafOrtu:'Ya', ParafGuru:'', CatatanGuru:'' }
     ];
     this.write('kebiasaan', kebiasaan);
+    const masterPelanggaran = [
+      ['Terlambat masuk sekolah', 5, 'Ringan'],
+      ['Tidak memakai atribut lengkap', 5, 'Ringan'],
+      ['Tidak mengerjakan tugas/PR', 5, 'Ringan'],
+      ['Makan/minum di kelas saat KBM', 5, 'Ringan'],
+      ['Membuang sampah sembarangan', 5, 'Ringan'],
+      ['Tidak mengikuti upacara', 10, 'Ringan'],
+      ['Rambut/seragam tidak sesuai aturan', 10, 'Ringan'],
+      ['Membawa HP tanpa izin', 15, 'Sedang'],
+      ['Bolos jam pelajaran', 15, 'Sedang'],
+      ['Keluar kelas tanpa izin', 15, 'Sedang'],
+      ['Berkata tidak sopan kepada teman', 20, 'Sedang'],
+      ['Mencontek saat ujian', 25, 'Sedang'],
+      ['Merokok di lingkungan sekolah', 50, 'Berat'],
+      ['Berkelahi dengan teman', 50, 'Berat'],
+      ['Membawa/menggunakan barang terlarang', 75, 'Berat'],
+      ['Melawan/tidak sopan kepada guru', 75, 'Berat'],
+      ['Merusak fasilitas sekolah', 50, 'Berat'],
+      ['Bullying/perundungan', 75, 'Berat'],
+      ['Lainnya', 5, 'Lainnya']
+    ].map((r,i) => ({ ID:'MPL-'+(i+1), JenisPelanggaran:r[0], Poin:r[1], Kategori:r[2] }));
+    this.write('masterPelanggaran', masterPelanggaran);
   }
 };
 
@@ -298,6 +321,7 @@ async function loadAll(){
   try{
     const data = await adapter.getAllBatch();
     TYPES.forEach(t => STATE[t] = data[t] || []);
+    STATE.masterPelanggaran = data.masterPelanggaran || [];
     applySettingsFromServer(data.pengaturan || {});
     populateClassFilters();
     renderCurrentPage();
@@ -457,6 +481,33 @@ document.addEventListener('click', e => {
     goToPage('absensi');
     openForm('absensi', null, { SiswaID: id });
   }
+});
+
+/* ---------------- DROPDOWN JENIS PELANGGARAN (dari Template Pelanggaran) ---------------- */
+document.addEventListener('change', e => {
+  if (!e.target.classList.contains('jenis-pelanggaran-select')) return;
+  const wrap = e.target.closest('.jenis-pelanggaran-picker');
+  const hidden = wrap.querySelector('input[type=hidden]');
+  const customInput = wrap.querySelector('.jenis-pelanggaran-custom');
+  const form = wrap.closest('form');
+  const poinInput = form ? form.querySelector('[name="Poin"]') : null;
+  if (e.target.value === '__custom__'){
+    customInput.classList.remove('hidden');
+    customInput.value = '';
+    hidden.value = '';
+    customInput.focus();
+  } else {
+    customInput.classList.add('hidden');
+    hidden.value = e.target.value;
+    const opt = e.target.selectedOptions[0];
+    const poin = opt ? opt.dataset.poin : '';
+    if (poinInput && poin !== undefined && poin !== '') poinInput.value = poin;
+  }
+});
+document.addEventListener('input', e => {
+  if (!e.target.classList.contains('jenis-pelanggaran-custom')) return;
+  const wrap = e.target.closest('.jenis-pelanggaran-picker');
+  wrap.querySelector('input[type=hidden]').value = e.target.value;
 });
 
 /* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
@@ -889,7 +940,7 @@ const FORM_CONFIG = {
     fields: [
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
       { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'JenisPelanggaran', label:'Jenis Pelanggaran', type:'text', required:true },
+      { key:'JenisPelanggaran', label:'Jenis Pelanggaran', type:'select-jenis-pelanggaran', required:true, full:true },
       { key:'Poin', label:'Poin Pelanggaran', type:'number' },
       { key:'Keterangan', label:'Keterangan', type:'textarea', full:true },
       { key:'Penanganan', label:'Penanganan', type:'textarea', full:true }
@@ -952,6 +1003,23 @@ function openForm(type, id, prefill){
       : (prefill && prefill[f.key] !== undefined ? prefill[f.key]
       : (typeof f.default==='function' ? f.default() : ''));
     const wrapClass = 'field' + (f.full ? ' full' : '');
+    if (f.type === 'select-jenis-pelanggaran'){
+      const master = (STATE.masterPelanggaran||[]).slice().sort((a,b)=>(a.JenisPelanggaran||'').localeCompare(b.JenisPelanggaran||''));
+      const matched = master.find(m => m.JenisPelanggaran === val);
+      const isCustom = !!val && !matched;
+      return `<div class="${wrapClass}"><label>${f.label}</label>
+        <div class="jenis-pelanggaran-picker">
+          <select class="jenis-pelanggaran-select" ${master.length ? '' : 'disabled'}>
+            <option value="">${master.length ? 'Pilih jenis pelanggaran...' : 'Belum ada Template Pelanggaran'}</option>
+            ${master.map(m => `<option value="${escapeHtml(m.JenisPelanggaran)}" data-poin="${escapeHtml(String(m.Poin ?? ''))}" ${m.JenisPelanggaran===val?'selected':''}>${escapeHtml(m.JenisPelanggaran)} (${escapeHtml(String(m.Poin ?? 0))} poin)</option>`).join('')}
+            <option value="__custom__" ${isCustom?'selected':''}>+ Jenis lainnya (ketik manual)</option>
+          </select>
+          <input type="text" class="jenis-pelanggaran-custom${isCustom?'':' hidden'}" placeholder="Ketik jenis pelanggaran lainnya..." value="${isCustom?escapeHtml(val):''}" />
+          <input type="hidden" name="${f.key}" value="${escapeHtml(val||'')}" />
+        </div>
+        <p class="muted" style="margin-top:6px;font-size:11.5px">Daftar bisa diatur lewat tombol "Template Pelanggaran" di halaman Pelanggaran.</p>
+      </div>`;
+    }
     if (f.type === 'select'){
       return `<div class="${wrapClass}"><label>${f.label}</label>
         <select name="${f.key}" ${f.required?'required':''}>
@@ -1015,6 +1083,8 @@ function openForm(type, id, prefill){
     }
     const missingSiswa = cfg.fields.find(f => f.type === 'select-siswa' && f.required && !data[f.key]);
     if (missingSiswa){ toast(`${missingSiswa.label} wajib dipilih — ketik nama lalu klik salah satu hasil.`, 'error'); return; }
+    const missingJenis = cfg.fields.find(f => f.type === 'select-jenis-pelanggaran' && f.required && !data[f.key]);
+    if (missingJenis){ toast(`${missingJenis.label} wajib dipilih atau diisi.`, 'error'); return; }
     showLoading(true);
     try{
       if (existing){
@@ -1167,6 +1237,140 @@ $('#modalBackdrop').addEventListener('click', e => { if (e.target.id==='modalBac
 $('#btnAddSiswa').addEventListener('click', () => openForm('siswa'));
 $('#btnAddAbsensi').addEventListener('click', () => openForm('absensi'));
 $('#btnAddPelanggaran').addEventListener('click', () => openForm('pelanggaran'));
+$('#btnMasterPelanggaran').addEventListener('click', () => openMasterPelanggaran());
+
+/* ---------------- TEMPLATE PELANGGARAN (kelola Jenis Pelanggaran & Poin) ----------------
+   Daftar baku Jenis Pelanggaran + Poin yang dipakai sebagai pilihan dropdown saat
+   mencatat pelanggaran, supaya konsisten antar guru (tidak ketik bebas beda-beda
+   istilah). Sekolah bisa tambah/ubah/hapus daftar ini kapan saja lewat menu ini —
+   mengubah daftar TIDAK mengubah data pelanggaran siswa yang sudah tercatat
+   sebelumnya (karena JenisPelanggaran & Poin disimpan sebagai teks/angka biasa
+   di baris pelanggaran masing-masing siswa, bukan referensi/link ke baris ini). */
+function openMasterPelanggaran(){
+  $('#modalTitle').textContent = 'Template Pelanggaran';
+  let editingId = null;
+
+  $('#modalBody').innerHTML = `
+    <p class="muted" style="margin:0 0 14px">Daftar Jenis Pelanggaran &amp; Poin baku ini akan muncul sebagai pilihan dropdown saat mencatat pelanggaran siswa. Mengubah daftar di sini tidak mengubah data pelanggaran yang sudah pernah dicatat.</p>
+    <form id="masterPelanggaranForm">
+      <div class="form-grid">
+        <div class="field full"><label>Jenis Pelanggaran</label>
+          <input type="text" id="mplJenis" placeholder="Contoh: Terlambat masuk sekolah" required />
+        </div>
+        <div class="field"><label>Poin</label>
+          <input type="number" id="mplPoin" min="0" value="5" required />
+        </div>
+        <div class="field"><label>Kategori</label>
+          <select id="mplKategori">
+            <option value="Ringan">Ringan</option>
+            <option value="Sedang">Sedang</option>
+            <option value="Berat">Berat</option>
+            <option value="Lainnya">Lainnya</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:18px">
+        <button type="submit" class="btn btn-primary" id="mplSubmitBtn"><i class="fa-solid fa-plus"></i> Tambah ke Template</button>
+        <button type="button" class="btn btn-ghost hidden" id="mplCancelEditBtn">Batal Edit</button>
+      </div>
+    </form>
+    <div class="bulk-siswa-list" id="mplList" style="max-height:280px"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="mplCloseBtn">Tutup</button>
+    </div>`;
+
+  function renderList(){
+    const list = $('#mplList');
+    const rows = STATE.masterPelanggaran.slice().sort((a,b) => (a.JenisPelanggaran||'').localeCompare(b.JenisPelanggaran||''));
+    if (!rows.length){
+      list.innerHTML = `<p class="muted" style="padding:8px">Belum ada Template Pelanggaran. Tambahkan lewat form di atas.</p>`;
+      return;
+    }
+    list.innerHTML = rows.map(m => `
+      <div class="bulk-item mpl-item">
+        <span class="mpl-info"><b>${escapeHtml(m.JenisPelanggaran||'-')}</b> <span class="muted">· ${escapeHtml(String(m.Poin ?? 0))} poin · ${escapeHtml(m.Kategori||'-')}</span></span>
+        <span class="search-dd-actions">
+          <button type="button" class="icon-btn-sm" data-mpl-edit="${escapeHtml(m.ID)}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" class="icon-btn-sm danger" data-mpl-del="${escapeHtml(m.ID)}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </span>
+      </div>`).join('');
+  }
+  renderList();
+
+  $('#mplList').addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-mpl-edit]');
+    const delBtn = e.target.closest('[data-mpl-del]');
+    if (editBtn){
+      const m = STATE.masterPelanggaran.find(o => String(o.ID)===String(editBtn.dataset.mplEdit));
+      if (!m) return;
+      editingId = m.ID;
+      $('#mplJenis').value = m.JenisPelanggaran || '';
+      $('#mplPoin').value = m.Poin ?? 5;
+      $('#mplKategori').value = m.Kategori || 'Ringan';
+      $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> Update Template';
+      $('#mplCancelEditBtn').classList.remove('hidden');
+      $('#mplJenis').focus();
+      return;
+    }
+    if (delBtn){
+      if (!confirm('Hapus jenis pelanggaran ini dari Template? Data pelanggaran siswa yang sudah tercatat sebelumnya tidak akan terhapus.')) return;
+      const id = delBtn.dataset.mplDel;
+      try{
+        await adapter.delete('masterPelanggaran', id);
+        STATE.masterPelanggaran = STATE.masterPelanggaran.filter(o => String(o.ID)!==String(id));
+        renderList();
+        toast('Template pelanggaran dihapus.', 'success');
+      }catch(err){
+        toast(err.message, 'error');
+      }
+    }
+  });
+
+  $('#mplCancelEditBtn').addEventListener('click', () => {
+    editingId = null;
+    $('#masterPelanggaranForm').reset();
+    $('#mplPoin').value = 5;
+    $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah ke Template';
+    $('#mplCancelEditBtn').classList.add('hidden');
+  });
+
+  $('#masterPelanggaranForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const jenis = $('#mplJenis').value.trim();
+    const poin = Number($('#mplPoin').value || 0);
+    const kategori = $('#mplKategori').value;
+    if (!jenis){ toast('Jenis Pelanggaran wajib diisi.', 'error'); return; }
+    const btn = $('#mplSubmitBtn');
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
+    try{
+      const data = { JenisPelanggaran: jenis, Poin: poin, Kategori: kategori };
+      if (editingId){
+        const updated = await adapter.update('masterPelanggaran', editingId, data);
+        const idx = STATE.masterPelanggaran.findIndex(o => String(o.ID)===String(editingId));
+        if (idx > -1) STATE.masterPelanggaran[idx] = { ...STATE.masterPelanggaran[idx], ...updated, ...data, ID: editingId };
+        toast('Template pelanggaran diperbarui.', 'success');
+      } else {
+        const created = await adapter.create('masterPelanggaran', data);
+        STATE.masterPelanggaran.push({ ...data, ...created });
+        toast('Ditambahkan ke Template Pelanggaran.', 'success');
+      }
+      editingId = null;
+      $('#masterPelanggaranForm').reset();
+      $('#mplPoin').value = 5;
+      $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah ke Template';
+      $('#mplCancelEditBtn').classList.add('hidden');
+      renderList();
+    }catch(err){
+      toast(err.message, 'error');
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  $('#mplCloseBtn').addEventListener('click', closeModal);
+  openModal();
+}
 $('#btnAddKonseling').addEventListener('click', () => openForm('konseling'));
 $('#btnAddKolaborasi').addEventListener('click', () => openForm('kolaborasi'));
 $('#btnAddKebiasaan').addEventListener('click', () => openForm('kebiasaan'));

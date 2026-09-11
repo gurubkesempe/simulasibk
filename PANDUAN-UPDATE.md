@@ -127,3 +127,23 @@ seperti bagian 1 di atas), lalu **Deploy → Manage deployments → Edit → Dep
 baru (pakai deployment yang sama supaya URL tidak berubah). Kalau langkah ini
 dilewati, fitur lama tetap jalan normal (tidak error), hanya saja peningkatan
 kecepatannya belum aktif.
+
+## 7. Template Pelanggaran (dropdown Jenis Pelanggaran & Poin)
+
+Sekarang saat mencatat pelanggaran, **Jenis Pelanggaran** dipilih lewat dropdown
+(bukan ketik bebas), dan **Poin** otomatis terisi sesuai jenis yang dipilih —
+supaya konsisten antar guru. Ada juga opsi **"+ Jenis lainnya (ketik manual)"**
+kalau memang belum ada di daftar baku.
+
+- Tombol **Template Pelanggaran** (halaman Pelanggaran) untuk menambah/ubah/hapus
+  daftar Jenis Pelanggaran & Poin baku sekolah kapan saja.
+- Mengubah/menghapus item di Template **tidak** mengubah data pelanggaran siswa
+  yang sudah pernah tercatat sebelumnya — keduanya disimpan terpisah.
+- Backend `Code.gs` di paket ini menambahkan sheet baru **"MasterPelanggaran"**,
+  otomatis dibuat & diisi ~19 jenis pelanggaran umum saat pertama kali dipakai
+  (tetap bisa diubah/dihapus semuanya lewat menu Template Pelanggaran).
+
+**Wajib:** tempel ulang `Code.gs` yang baru ke Apps Script Editor (bagian 1) lalu
+**Deploy → Manage deployments → Edit → Deploy** versi baru (deployment yang sama,
+supaya URL tidak berubah), baru kemudian ganti `index.html`, `script.js`,
+`style.css` di GitHub seperti biasa.
