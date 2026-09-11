@@ -100,6 +100,21 @@ const RealAdapter = {
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Gagal menyimpan data massal');
     return json.data;
+  },
+  /* Profil Sekolah & pengaturan lain disimpan sebagai key-value di sheet
+     "Pengaturan" — supaya ikut tersimpan di Google Sheet dan otomatis muncul
+     lagi di perangkat/browser lain, bukan cuma di localStorage. */
+  async getSettings(){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'getSettings', token: API_TOKEN }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal memuat pengaturan');
+    return json.data;
+  },
+  async saveSettings(data){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'saveSettings', data, token: API_TOKEN }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal menyimpan pengaturan');
+    return json.data;
   }
 };
 
@@ -112,6 +127,7 @@ const DemoAdapter = {
   async getAllBatch(){
     const out = {};
     TYPES.forEach(t => out[t] = this.read(t));
+    out.pengaturan = await this.getSettings();
     return out;
   },
   async create(type, data){
@@ -151,6 +167,24 @@ const DemoAdapter = {
     inserted.forEach(row => arr.push(row));
     this.write(type, arr);
     return { inserted: inserted.length, rows: inserted };
+  },
+  /* Padanan getSettings/saveSettings di RealAdapter, tapi murni di localStorage
+     karena mode demo memang tidak punya Google Sheet sungguhan. */
+  async getSettings(){
+    return {
+      NamaSekolah: localStorage.getItem('bk_school_name') || '',
+      TahunPelajaran: localStorage.getItem('bk_school_year') || '',
+      LogoSekolah: localStorage.getItem('bk_school_logo') || ''
+    };
+  },
+  async saveSettings(data){
+    if (data.NamaSekolah !== undefined) localStorage.setItem('bk_school_name', data.NamaSekolah);
+    if (data.TahunPelajaran !== undefined) localStorage.setItem('bk_school_year', data.TahunPelajaran);
+    if (data.LogoSekolah !== undefined){
+      if (data.LogoSekolah) localStorage.setItem('bk_school_logo', data.LogoSekolah);
+      else localStorage.removeItem('bk_school_logo');
+    }
+    return this.getSettings();
   },
   seedIfEmpty(){
     if (this.read('siswa').length) return;
@@ -264,15 +298,30 @@ async function loadAll(){
   try{
     const data = await adapter.getAllBatch();
     TYPES.forEach(t => STATE[t] = data[t] || []);
+    applySettingsFromServer(data.pengaturan || {});
     populateClassFilters();
     renderCurrentPage();
     renderDashboard();
-    renderSchoolProfile();
   }catch(err){
     toast('Gagal memuat data: ' + err.message, 'error');
   }finally{
     showLoading(false);
   }
+}
+
+/* Terapkan Profil Sekolah yang datang dari server (Google Sheet / mode demo) dan
+   simpan salinannya di localStorage supaya lain kali app dibuka, identitas
+   sekolah langsung tampil seketika (dari cache) sebelum data server selesai
+   dimuat, lalu diperbarui lagi begitu respons server datang. */
+function applySettingsFromServer(map){
+  SCHOOL_NAME = map.NamaSekolah || '';
+  SCHOOL_YEAR = map.TahunPelajaran || '';
+  SCHOOL_LOGO = map.LogoSekolah || '';
+  localStorage.setItem('bk_school_name', SCHOOL_NAME);
+  localStorage.setItem('bk_school_year', SCHOOL_YEAR);
+  if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
+  else localStorage.removeItem('bk_school_logo');
+  renderSchoolProfile();
 }
 
 function populateClassFilters(){
@@ -1141,17 +1190,46 @@ $('#reportPeriode').addEventListener('change', () => {
   const val = $('#reportPeriode').value;
   $('#reportTanggalField').classList.toggle('hidden', val !== 'harian');
   $('#reportBulanField').classList.toggle('hidden', val !== 'bulanan');
+  $('#reportSemesterField').classList.toggle('hidden', val !== 'semester');
+  $('#reportTahunAjaranField').classList.toggle('hidden', val !== 'semester');
+  if (val === 'semester' && !$('#reportTahunAjaran').value.trim()){
+    $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
+  }
 });
 $('#reportType').addEventListener('change', () => {
   const isIndividu = $('#reportType').value === 'individu';
   $('#reportKelasField').classList.toggle('hidden', isIndividu);
   $('#reportSiswaField').classList.toggle('hidden', !isIndividu);
+  $('#reportRekapKelasWrap').style.display = isIndividu ? 'none' : '';
 });
 (function initReportDefaults(){
   const today = new Date();
   $('#reportTanggal').value = today.toISOString().slice(0,10);
   $('#reportBulan').value = today.toISOString().slice(0,7);
+  $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
 })();
+
+/* Ubah "2025/2026" (atau "2025-2026", "2025 2026") jadi { y1:2025, y2:2026 }.
+   Kalau formatnya tidak dikenali, pakai tahun berjalan sebagai fallback supaya
+   fitur semester tetap bisa dipakai walau Tahun Pelajaran di Pengaturan belum diisi. */
+function parseTahunAjaran(str){
+  const m = String(str || '').match(/(\d{4}).*?(\d{4})/);
+  if (m) return { y1: parseInt(m[1],10), y2: parseInt(m[2],10) };
+  const y = new Date().getFullYear();
+  return { y1: y, y2: y+1 };
+}
+function monthLabel(ym){
+  if (!ym) return '-';
+  const [y,m] = ym.split('-');
+  return new Date(y, m-1, 1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});
+}
+/* Semester Ganjil = Juli–Desember (tahun pertama tahun pelajaran);
+   Semester Genap = Januari–Juni (tahun kedua tahun pelajaran) — konvensi umum sekolah di Indonesia. */
+function semesterMonthRange(){
+  const { y1, y2 } = parseTahunAjaran($('#reportTahunAjaran').value || SCHOOL_YEAR);
+  const isGenap = $('#reportSemester').value === 'genap';
+  return isGenap ? { startYM: `${y2}-01`, endYM: `${y2}-06` } : { startYM: `${y1}-07`, endYM: `${y1}-12` };
+}
 
 function filterByPeriode(rows, type){
   const periode = $('#reportPeriode').value;
@@ -1167,6 +1245,13 @@ function filterByPeriode(rows, type){
     if (!bln) return rows;
     return rows.filter(r => (r.Tanggal||'').slice(0,7) === bln);
   }
+  if (periode === 'semester'){
+    const { startYM, endYM } = semesterMonthRange();
+    return rows.filter(r => {
+      const ym = (r.Tanggal||'').slice(0,7);
+      return ym && ym >= startYM && ym <= endYM;
+    });
+  }
   return rows;
 }
 function periodeLabel(){
@@ -1180,6 +1265,12 @@ function periodeLabel(){
     if (!bln) return 'Bulanan';
     const [y,m] = bln.split('-');
     return `Bulanan — ${new Date(y, m-1, 1).toLocaleDateString('id-ID',{month:'long',year:'numeric'})}`;
+  }
+  if (periode === 'semester'){
+    const { startYM, endYM } = semesterMonthRange();
+    const semLabel = $('#reportSemester').value === 'genap' ? 'Genap' : 'Ganjil';
+    const taj = ($('#reportTahunAjaran').value || SCHOOL_YEAR || '-').trim() || '-';
+    return `Semester ${semLabel} — Tahun Pelajaran ${taj} (${monthLabel(startYM)} s.d. ${monthLabel(endYM)})`;
   }
   return 'Semua Tanggal';
 }
@@ -1247,11 +1338,14 @@ $('#btnGenerateReport').addEventListener('click', () => {
   }
   const cols = REPORT_COLUMNS[type];
   const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+  const showRekapKelas = $('#reportRekapKelas').checked;
 
   const html = `
     <h2>${REPORT_TITLES[type]}</h2>
     <div class="report-head-line"><span>Kelas: ${escapeHtml(kelas || 'Semua Kelas')} &nbsp;|&nbsp; Periode: ${periodeLabel()}</span><span>Dicetak: ${today}</span></div>
     ${buildReportSummaryHtml(type, rows)}
+    ${showRekapKelas ? buildKelasRecapHtml(type, rows) : ''}
+    <h3 style="margin-top:22px">Rincian Data</h3>
     <table>
       <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
       <tbody>
@@ -1289,6 +1383,65 @@ function buildReportSummaryHtml(type, rows){
       </div>`;
   }
   return '';
+}
+
+/* Rekap ringkas per kelas — mengelompokkan data (yang sudah difilter periode/kelas)
+   berdasarkan kolom Kelas, supaya guru BK bisa langsung lihat perbandingan antar
+   kelas dalam satu bulan / satu semester tanpa harus scroll rincian satu-satu. */
+function buildKelasRecapHtml(type, rows){
+  if (!rows.length) return '';
+  const classes = Array.from(new Set(rows.map(r => r.Kelas || '-'))).sort((a,b)=> String(a).localeCompare(String(b), 'id'));
+  if (classes.length < 1) return '';
+
+  let head, body;
+  if (type === 'siswa'){
+    head = ['Kelas','Jumlah Siswa','Laki-laki','Perempuan'];
+    body = classes.map(k => {
+      const grp = rows.filter(r => (r.Kelas||'-') === k);
+      const l = grp.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('L')).length;
+      const p = grp.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('P')).length;
+      return [k, grp.length, l, p];
+    });
+  } else if (type === 'absensi'){
+    head = ['Kelas','Hadir','Sakit','Izin','Alpa','Total'];
+    body = classes.map(k => {
+      const grp = rows.filter(r => (r.Kelas||'-') === k);
+      const c = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+      grp.forEach(r => { if (c[r.Status] !== undefined) c[r.Status]++; });
+      return [k, c.Hadir, c.Sakit, c.Izin, c.Alpa, grp.length];
+    });
+  } else if (type === 'pelanggaran'){
+    head = ['Kelas','Jumlah Kasus','Total Poin'];
+    body = classes.map(k => {
+      const grp = rows.filter(r => (r.Kelas||'-') === k);
+      const totalPoin = grp.reduce((s,r)=> s + (Number(r.Poin)||0), 0);
+      return [k, grp.length, totalPoin];
+    });
+  } else {
+    // konseling, kolaborasi, kebiasaan: cukup jumlah catatan per kelas
+    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', kebiasaan:'Jumlah Formulir Terisi' };
+    head = ['Kelas', labelMap[type] || 'Jumlah Data'];
+    body = classes.map(k => {
+      const grp = rows.filter(r => (r.Kelas||'-') === k);
+      return [k, grp.length];
+    });
+  }
+
+  const totalsRow = head.map((h,i) => {
+    if (i === 0) return 'Total';
+    const isNumericCol = body.every(row => typeof row[i] === 'number');
+    return isNumericCol ? body.reduce((s,row)=> s + row[i], 0) : '';
+  });
+
+  return `
+    <h3 style="margin-top:22px">Rekap per Kelas</h3>
+    <table>
+      <thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${body.map(row => `<tr>${row.map((v,i)=> `<td${i>0?' style="text-align:center"':''}>${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}
+        <tr style="font-weight:700;background:#f7f8f6">${totalsRow.map((v,i)=> `<td${i>0?' style="text-align:center"':''}>${escapeHtml(v)}</td>`).join('')}</tr>
+      </tbody>
+    </table>`;
 }
 
 /* ---------------- IMPORT DATA SISWA DARI EXCEL ----------------
@@ -1400,12 +1553,49 @@ function downloadFullBackup(){
 }
 
 /* Settings button lets user change/reset API URL */
-/* Ubah file gambar yang dipilih user jadi base64 data URL, supaya bisa langsung
-   disimpan di localStorage & ditampilkan tanpa perlu upload ke server manapun. */
-function fileToDataUrl(file){
+/* Ubah file gambar yang dipilih user jadi base64 data URL yang sudah diperkecil
+   (resize + kompres), supaya cukup kecil untuk disimpan dalam SATU sel Google
+   Sheets (batas ±50.000 karakter per sel) — bukan cuma disimpan di localStorage. */
+function resizeImageToDataUrl(file, maxDim = 240, maxChars = 45000){
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.max(1, Math.round(w * scale));
+        h = Math.max(1, Math.round(h * scale));
+
+        const draw = (cw, ch) => {
+          canvas.width = cw; canvas.height = ch;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch); // latar putih agar tidak jadi hitam saat diubah ke JPEG
+          ctx.drawImage(img, 0, 0, cw, ch);
+        };
+        draw(w, h);
+
+        let quality = 0.85;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while (dataUrl.length > maxChars && quality > 0.35){
+          quality -= 0.1;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        while (dataUrl.length > maxChars && Math.min(w, h) > 32){
+          w = Math.round(w * 0.85); h = Math.round(h * 0.85);
+          draw(w, h);
+          dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        }
+        if (dataUrl.length > maxChars){
+          reject(new Error('Gambar terlalu kompleks untuk dijadikan logo. Coba gambar lain yang lebih sederhana (mis. logo polos berbentuk PNG/JPG).'));
+          return;
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('File bukan gambar yang valid.'));
+      img.src = reader.result;
+    };
     reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
     reader.readAsDataURL(file);
   });
@@ -1416,7 +1606,7 @@ function openSettings(){
   $('#modalBody').innerHTML = `
     <div class="field full backup-box profile-box">
       <label>Profil Sekolah</label>
-      <p class="muted" style="margin:2px 0 10px">Tampil di halaman Dashboard. Disimpan di browser ini saja (localStorage), tidak ikut tersimpan ke Google Sheet.</p>
+      <p class="muted" style="margin:2px 0 10px">Tampil di halaman Dashboard. Tersimpan di Google Sheet (sheet "Pengaturan") sehingga otomatis muncul lagi di perangkat/browser manapun yang login ke Web App yang sama.</p>
       <div class="field full" style="margin-bottom:12px">
         <label>Nama Sekolah</label>
         <input type="text" id="settingsSchoolName" value="${escapeHtml(SCHOOL_NAME)}" placeholder="Contoh: SMA Negeri 1 Harapan" />
@@ -1437,6 +1627,7 @@ function openSettings(){
             <button class="btn btn-ghost" id="settingsLogoRemoveBtn" type="button" style="${SCHOOL_LOGO ? '' : 'display:none'}"><i class="fa-solid fa-trash"></i> Hapus</button>
           </div>
         </div>
+        <p class="muted" style="margin-top:6px;font-size:11.5px">Logo otomatis diperkecil & dikompres agar muat disimpan di Google Sheet.</p>
       </div>
       <button class="btn btn-primary" id="settingsProfileSaveBtn" type="button" style="margin-top:14px"><i class="fa-solid fa-check"></i> Simpan Profil Sekolah</button>
     </div>
@@ -1466,13 +1657,18 @@ function openSettings(){
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/')){ toast('File harus berupa gambar.', 'error'); return; }
-    if (file.size > 1.5 * 1024 * 1024){ toast('Ukuran logo maksimal 1.5MB.', 'error'); return; }
+    const btn = $('#settingsLogoBtn');
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses...';
     try{
-      pendingLogoDataUrl = await fileToDataUrl(file);
+      pendingLogoDataUrl = await resizeImageToDataUrl(file);
       $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${pendingLogoDataUrl}" alt="Logo" />`;
       $('#settingsLogoRemoveBtn').style.display = '';
     }catch(err){
       toast(err.message, 'error');
+    }finally{
+      btn.disabled = false; btn.innerHTML = originalLabel;
+      e.target.value = '';
     }
   });
   $('#settingsLogoRemoveBtn').addEventListener('click', () => {
@@ -1480,16 +1676,27 @@ function openSettings(){
     $('#settingsLogoPreviewWrap').innerHTML = `<i class="fa-solid fa-image"></i>`;
     $('#settingsLogoRemoveBtn').style.display = 'none';
   });
-  $('#settingsProfileSaveBtn').addEventListener('click', () => {
-    SCHOOL_NAME = $('#settingsSchoolName').value.trim();
-    SCHOOL_YEAR = $('#settingsSchoolYear').value.trim();
-    SCHOOL_LOGO = pendingLogoDataUrl || '';
-    localStorage.setItem('bk_school_name', SCHOOL_NAME);
-    localStorage.setItem('bk_school_year', SCHOOL_YEAR);
-    if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
-    else localStorage.removeItem('bk_school_logo');
-    renderSchoolProfile();
-    toast('Profil sekolah disimpan.', 'success');
+  $('#settingsProfileSaveBtn').addEventListener('click', async () => {
+    const name = $('#settingsSchoolName').value.trim();
+    const year = $('#settingsSchoolYear').value.trim();
+    const logo = pendingLogoDataUrl || '';
+    const btn = $('#settingsProfileSaveBtn');
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
+    try{
+      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo });
+      SCHOOL_NAME = name; SCHOOL_YEAR = year; SCHOOL_LOGO = logo;
+      localStorage.setItem('bk_school_name', SCHOOL_NAME);
+      localStorage.setItem('bk_school_year', SCHOOL_YEAR);
+      if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
+      else localStorage.removeItem('bk_school_logo');
+      renderSchoolProfile();
+      toast('Profil sekolah disimpan ke Google Sheet.', 'success');
+    }catch(err){
+      toast('Gagal menyimpan profil sekolah: ' + err.message, 'error');
+    }finally{
+      btn.disabled = false; btn.innerHTML = originalLabel;
+    }
   });
 
   // ---- Koneksi & backup ----

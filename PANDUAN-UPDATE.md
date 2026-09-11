@@ -4,6 +4,21 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
+## 0. PENTING — update ini WAJIB ganti Code.gs lagi
+
+Update kali ini menambahkan penyimpanan **Profil Sekolah** (Nama Sekolah, Tahun
+Pelajaran, Logo) ke Google Sheet lewat sheet baru bernama **"Pengaturan"**, supaya
+identitas sekolah otomatis muncul lagi di perangkat/browser manapun — bukan cuma
+tersimpan di localStorage satu browser seperti sebelumnya.
+
+Karena itu, **Code.gs di Apps Script kamu wajib ditimpa ulang** dengan isi `Code.gs`
+yang ada di paket ini (langkah-langkahnya sama seperti bagian 1 di bawah). Kalau tidak
+diganti, tombol "Simpan Profil Sekolah" akan gagal dengan pesan error "Aksi POST tidak
+dikenal" karena backend lama belum mengenal aksi `saveSettings`.
+
+Sheet "Pengaturan" akan otomatis dibuat sendiri oleh backend saat pertama kali kamu
+klik "Simpan Profil Sekolah" — tidak perlu dibuat manual.
+
 ## 1. Kenapa harus ganti Code.gs?
 
 File `Code.gs` di folder ini adalah backend baru untuk Google Apps Script kamu. Backend

@@ -266,6 +266,7 @@
                 <option value="">Semua Tanggal</option>
                 <option value="harian">Harian</option>
                 <option value="bulanan">Bulanan</option>
+                <option value="semester">Semester</option>
               </select>
             </div>
             <div class="field hidden" id="reportTanggalField">
@@ -276,8 +277,23 @@
               <label>Pilih Bulan</label>
               <input type="month" id="reportBulan" class="select select--full" />
             </div>
+            <div class="field hidden" id="reportSemesterField">
+              <label>Semester</label>
+              <select id="reportSemester" class="select select--full">
+                <option value="ganjil">Ganjil (Jul–Des)</option>
+                <option value="genap">Genap (Jan–Jun)</option>
+              </select>
+            </div>
+            <div class="field hidden" id="reportTahunAjaranField">
+              <label>Tahun Pelajaran</label>
+              <input type="text" id="reportTahunAjaran" class="select select--full" placeholder="Contoh: 2025/2026" />
+            </div>
           </div>
-          <button class="btn btn-primary" id="btnGenerateReport"><i class="fa-solid fa-file-pdf"></i> Buat &amp; Cetak Laporan</button>
+          <label class="checkbox-pill" id="reportRekapKelasWrap" style="margin-top:4px">
+            <input type="checkbox" id="reportRekapKelas" checked />
+            <span>Tampilkan rekap ringkas per kelas</span>
+          </label>
+          <button class="btn btn-primary" id="btnGenerateReport" style="margin-top:14px"><i class="fa-solid fa-file-pdf"></i> Buat &amp; Cetak Laporan</button>
         </div>
         <div class="card" id="reportPreviewCard" style="display:none">
           <div id="reportPreview" class="report-preview"></div>
