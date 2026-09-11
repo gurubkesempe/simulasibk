@@ -1,2216 +1,625 @@
 /* ============================================================
-   BK DIGITAL — FRONTEND LOGIC
+   BK DIGITAL — BACKEND (Google Apps Script)
+   ------------------------------------------------------------
+   Cara pasang:
+   1. Buka Google Sheet yang jadi database BK Digital kamu.
+   2. Extensions > Apps Script.
+   3. Ganti/isi file Code.gs dengan seluruh isi file ini.
+   4. Buka Project Settings (ikon gerigi) > Script Properties >
+      tambahkan property bernama  ACCESS_TOKEN  dengan nilai bebas
+      (contoh: kata sandi acak yang cuma kamu & guru BK tahu).
+      Token ini TIDAK ikut ter-commit ke GitHub, jadi lebih aman.
+   5. Deploy > New deployment > Web app.
+        - Execute as: Me
+        - Who has access: Anyone
+      (Kalau sekolah pakai Google Workspace, pilih "Anyone within
+       [nama organisasi]" supaya hanya akun sekolah yang bisa akses —
+       ini jauh lebih aman daripada "Anyone".)
+   6. Salin URL Web App yang dihasilkan, tempel di layar login
+      BK Digital bersama ACCESS_TOKEN yang kamu buat di langkah 4.
+
+   Catatan keamanan:
+   - Kode di GitHub bersifat publik dan TIDAK menyimpan data siswa
+     sama sekali — data selalu hidup di Google Sheet ini.
+   - ACCESS_TOKEN membuat siapapun yang tidak tahu token tidak bisa
+     memanggil API ini walau tahu URL-nya.
+   - Update kode di GitHub (frontend) tidak pernah menyentuh Sheet
+     ini, jadi tidak akan pernah menghapus/mengubah data yang sudah
+     tersimpan.
+
+   Update terbaru:
+   - Menambahkan sheet "Pengaturan" (key-value) untuk menyimpan
+     Profil Sekolah (Nama Sekolah, Tahun Pelajaran Aktif, Logo)
+     supaya tersimpan permanen di Google Sheet dan otomatis muncul
+     lagi di perangkat/browser manapun yang login ke Web App yang
+     sama — bukan cuma di localStorage satu browser.
+   - Menambahkan tabel referensi "MasterPelanggaran" (Jenis Pelanggaran
+     & Poin) sehingga saat mencatat pelanggaran, Jenis Pelanggaran &
+     Poin dipilih lewat dropdown dari daftar baku, bukan diketik bebas.
+   - Menambahkan akun Guru Mapel (sheet "Guru"): tiap guru punya
+     Username + Password sendiri (diatur admin lewat menu "Kelola Akun
+     Guru Mapel" di aplikasi), login TANPA perlu tahu URL Web App atau
+     ACCESS_TOKEN. Setelah login, guru hanya bisa melihat & mencatat
+     data Pelanggaran, dan HANYA untuk kelas yang jadi tanggung jawabnya
+     JIKA kolom Kelas diisi. Kalau kolom Kelas dikosongkan saat akun
+     dibuat, guru itu diberi akses ke SEMUA kelas (lihat kelasListIncludes()
+     di bawah) — cocok untuk guru yang memang bertugas lintas kelas.
    ============================================================ */
 
-/* Escape data siswa/guru sebelum dimasukkan ke innerHTML, supaya data yang berisi
-   karakter HTML (mis. "<", ">", nama yang mengandung tag) tidak dieksekusi sebagai
-   kode di browser pengguna lain (mencegah stored XSS). SELALU pakai fungsi ini
-   untuk setiap nilai dari STATE (Nama, Kelas, Catatan, Keterangan, dst) yang
-   ditaruh lewat innerHTML/template string, kecuali memang sengaja HTML aman
-   yang kita tulis sendiri (mis. tag <tr>, <td> statis). */
-function escapeHtml(value){
-  if (value === null || value === undefined) return '';
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi','kebiasaan'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[], guru:[] };
-
-/* URL Web App bawaan — diisi SEKALI oleh Admin BK saat pertama kali men-deploy
-   situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
-   menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
-   bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxutoonWTiJcU80iE_wVcEcuUHuTfNw3QbyrfUrhAy5O0HAwJfOo4O83gUEtRvm6kyt/exec';
-
-let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
-let API_TOKEN = localStorage.getItem('bk_api_token') || '';
-/* Peran yang sedang login: 'admin' (Guru BK, akses penuh) atau 'guru'
-   (Guru Mapel, dibatasi ke menu Pelanggaran & kelasnya sendiri saja). */
-let USER_ROLE = localStorage.getItem('bk_role') || 'admin';
-let GURU_NAMA = localStorage.getItem('bk_guru_nama') || '';
-let GURU_KELAS = JSON.parse(localStorage.getItem('bk_guru_kelas') || '[]');
-let currentPage = 'dashboard';
-let charts = {};
-
-/* ---------------- PROFIL SEKOLAH ----------------
-   Disimpan di localStorage saja (murni tampilan), tidak dikirim ke Google Sheet,
-   supaya tidak perlu mengubah struktur backend. Logo disimpan sebagai base64
-   data URL agar bisa langsung ditampilkan tanpa perlu hosting file terpisah. */
-let SCHOOL_NAME = localStorage.getItem('bk_school_name') || '';
-let SCHOOL_YEAR = localStorage.getItem('bk_school_year') || '';
-let SCHOOL_LOGO = localStorage.getItem('bk_school_logo') || '';
-
-function renderSchoolProfile(){
-  const bar = $('#schoolProfileBar');
-  if (!bar) return;
-  const hasAny = SCHOOL_NAME || SCHOOL_YEAR || SCHOOL_LOGO;
-  bar.style.display = hasAny ? 'flex' : 'none';
-  $('#schoolProfileName').textContent = SCHOOL_NAME || 'Nama Sekolah';
-  $('#schoolProfileYear').textContent = SCHOOL_YEAR ? `Tahun Pelajaran ${SCHOOL_YEAR}` : 'Tahun Pelajaran belum diatur';
-  const img = $('#schoolProfileLogo');
-  const icon = $('#schoolProfileLogoIcon');
-  if (SCHOOL_LOGO){
-    img.src = SCHOOL_LOGO; img.style.display = 'block'; icon.style.display = 'none';
-  } else {
-    img.style.display = 'none'; icon.style.display = 'block';
-  }
-  document.title = SCHOOL_NAME ? `BK Digital — ${SCHOOL_NAME}` : 'BK Digital — Sistem Bimbingan Konseling';
-}
-
-/* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
-const RealAdapter = {
-  /* Login Guru Mapel: hanya kirim username & password (tidak pernah URL/token
-     master), backend membalas sessionToken terbatas yang lalu dipakai sebagai
-     API_TOKEN untuk request-request berikutnya. */
-  async loginGuru(username, password){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginGuru', username, password }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal login');
-    return json.data;
-  },
-  async getAll(type){
-    // Token dikirim lewat body POST (bukan query string URL) supaya tidak
-    // tersimpan di riwayat browser / log server.
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'getAll', type, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal mengambil data');
-    return json.data;
-  },
-  /* Ambil semua jenis data (Siswa, Absensi, dst) dalam SATU kali permintaan ke server,
-     jauh lebih cepat dibanding 6 permintaan terpisah karena Apps Script hanya perlu
-     "bangun" satu kali untuk melayani semuanya sekaligus. */
-  async getAllBatch(){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'getAllBatch', token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal mengambil data');
-    return json.data;
-  },
-  async create(type, data){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'create', type, data, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal menyimpan data');
-    return json.data;
-  },
-  async update(type, id, data){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'update', type, id, data, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal memperbarui data');
-    return json.data;
-  },
-  async delete(type, id){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'delete', type, id, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal menghapus data');
-    return true;
-  },
-  async importBulk(type, rows, matchField){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'importBulk', type, rows, matchField, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal mengimpor data');
-    return json.data;
-  },
-  /* Simpan banyak baris sekaligus dalam SATU permintaan (dipakai Absen Massal) —
-     jauh lebih cepat dibanding memanggil create() satu-satu per siswa. */
-  async bulkInsert(type, rows){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'bulkInsert', type, rows, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal menyimpan data massal');
-    return json.data;
-  },
-  /* Profil Sekolah & pengaturan lain disimpan sebagai key-value di sheet
-     "Pengaturan" — supaya ikut tersimpan di Google Sheet dan otomatis muncul
-     lagi di perangkat/browser lain, bukan cuma di localStorage. */
-  async getSettings(){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'getSettings', token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal memuat pengaturan');
-    return json.data;
-  },
-  async saveSettings(data){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'saveSettings', data, token: API_TOKEN }) });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal menyimpan pengaturan');
-    return json.data;
-  }
+var TYPE_SHEET = {
+  siswa: 'Siswa',
+  absensi: 'Absensi',
+  pelanggaran: 'Pelanggaran',
+  konseling: 'Konseling',
+  kolaborasi: 'Kolaborasi',
+  kebiasaan: 'Kebiasaan',
+  masterPelanggaran: 'MasterPelanggaran',
+  guru: 'Guru'
 };
 
-const DemoAdapter = {
-  key(type){ return `bk_demo_${type}`; },
-  read(type){ return JSON.parse(localStorage.getItem(this.key(type)) || '[]'); },
-  write(type, arr){ localStorage.setItem(this.key(type), JSON.stringify(arr)); },
-  async getAll(type){ return this.read(type); },
-  /* Padanan getAllBatch di RealAdapter, supaya kode loadAll() bisa sama untuk kedua mode. */
-  async getAllBatch(){
-    const out = {};
-    TYPES.forEach(t => out[t] = this.read(t));
-    out.masterPelanggaran = this.read('masterPelanggaran');
-    out.guru = this.read('guru');
-    out.pengaturan = await this.getSettings();
-    return out;
-  },
-  async create(type, data){
-    const arr = this.read(type);
-    data.ID = data.ID || (type.substring(0,3).toUpperCase() + '-' + Date.now().toString(36));
-    arr.push(data); this.write(type, arr); return data;
-  },
-  async update(type, id, data){
-    const arr = this.read(type);
-    const idx = arr.findIndex(o => String(o.ID) === String(id));
-    if (idx === -1) throw new Error('Data tidak ditemukan');
-    arr[idx] = { ...arr[idx], ...data }; this.write(type, arr); return arr[idx];
-  },
-  async delete(type, id){
-    const arr = this.read(type).filter(o => String(o.ID) !== String(id));
-    this.write(type, arr); return true;
-  },
-  async importBulk(type, rows, matchField){
-    const arr = this.read(type);
-    const existingKeys = new Set(arr.map(o => String(o[matchField]||'').trim().toLowerCase()).filter(Boolean));
-    let added = 0, skipped = 0; const skippedKeys = [];
-    rows.forEach((r,i) => {
-      const key = String(r[matchField]||'').trim().toLowerCase();
-      if (key && existingKeys.has(key)){ skipped++; skippedKeys.push(r[matchField]); return; }
-      const row = { ...r, ID: r.ID || (type.substring(0,3).toUpperCase() + '-' + Date.now().toString(36) + '-' + i) };
-      arr.push(row);
-      if (key) existingKeys.add(key);
-      added++;
-    });
-    this.write(type, arr);
-    return { added, skipped, skippedKeys };
-  },
-  /* Padanan bulkInsert di RealAdapter — simpan banyak baris sekaligus. */
-  async bulkInsert(type, rows){
-    const arr = this.read(type);
-    const inserted = rows.map((r,i) => ({ ...r, ID: r.ID || (type.substring(0,3).toUpperCase() + '-' + Date.now().toString(36) + '-' + i) }));
-    inserted.forEach(row => arr.push(row));
-    this.write(type, arr);
-    return { inserted: inserted.length, rows: inserted };
-  },
-  /* Padanan getSettings/saveSettings di RealAdapter, tapi murni di localStorage
-     karena mode demo memang tidak punya Google Sheet sungguhan. */
-  async getSettings(){
-    return {
-      NamaSekolah: localStorage.getItem('bk_school_name') || '',
-      TahunPelajaran: localStorage.getItem('bk_school_year') || '',
-      LogoSekolah: localStorage.getItem('bk_school_logo') || ''
-    };
-  },
-  async saveSettings(data){
-    if (data.NamaSekolah !== undefined) localStorage.setItem('bk_school_name', data.NamaSekolah);
-    if (data.TahunPelajaran !== undefined) localStorage.setItem('bk_school_year', data.TahunPelajaran);
-    if (data.LogoSekolah !== undefined){
-      if (data.LogoSekolah) localStorage.setItem('bk_school_logo', data.LogoSekolah);
-      else localStorage.removeItem('bk_school_logo');
-    }
-    return this.getSettings();
-  },
-  seedIfEmpty(){
-    if (this.read('siswa').length) return;
-    const siswa = [
-      { ID:'SIS-1', NIS:'2201001', Nama:'Ahmad Fadillah', Kelas:'IX-A', JenisKelamin:'L', TempatTglLahir:'Semarang, 12-04-2011', Alamat:'Jl. Merdeka No. 12', NamaOrtu:'Budi Santoso', NoHPOrtu:'081234567801', Catatan:'' },
-      { ID:'SIS-2', NIS:'2201002', Nama:'Siti Nurhaliza', Kelas:'IX-A', JenisKelamin:'P', TempatTglLahir:'Purwodadi, 03-08-2011', Alamat:'Jl. Anggrek No. 5', NamaOrtu:'Sri Wahyuni', NoHPOrtu:'081234567802', Catatan:'' },
-      { ID:'SIS-3', NIS:'2201003', Nama:'Rizky Maulana', Kelas:'VIII-B', JenisKelamin:'L', TempatTglLahir:'Grobogan, 21-01-2012', Alamat:'Jl. Melati No. 9', NamaOrtu:'Agus Wibowo', NoHPOrtu:'081234567803', Catatan:'Perlu pemantauan kedisiplinan' },
-      { ID:'SIS-4', NIS:'2201004', Nama:'Dewi Lestari', Kelas:'VIII-B', JenisKelamin:'P', TempatTglLahir:'Purwodadi, 15-11-2011', Alamat:'Jl. Kenanga No. 2', NamaOrtu:'Hendra Kusuma', NoHPOrtu:'081234567804', Catatan:'' },
-      { ID:'SIS-5', NIS:'2201005', Nama:'Muhammad Iqbal', Kelas:'VII-C', JenisKelamin:'L', TempatTglLahir:'Semarang, 30-06-2012', Alamat:'Jl. Mawar No. 18', NamaOrtu:'Joko Prasetyo', NoHPOrtu:'081234567805', Catatan:'' }
-    ];
-    this.write('siswa', siswa);
-    const today = new Date(); const ymd = (d) => d.toISOString().slice(0,10);
-    const absensi = [
-      { ID:'ABS-1', Tanggal: ymd(today), SiswaID:'SIS-1', Nama:'Ahmad Fadillah', Kelas:'IX-A', Status:'Hadir', Keterangan:'' },
-      { ID:'ABS-2', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', Status:'Alpa', Keterangan:'Tanpa keterangan' },
-      { ID:'ABS-3', Tanggal: ymd(today), SiswaID:'SIS-4', Nama:'Dewi Lestari', Kelas:'VIII-B', Status:'Sakit', Keterangan:'Demam' }
-    ];
-    this.write('absensi', absensi);
-    const pelanggaran = [
-      { ID:'PEL-1', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', JenisPelanggaran:'Terlambat masuk sekolah', Poin:5, Keterangan:'Terlambat 20 menit', Penanganan:'Teguran lisan' },
-      { ID:'PEL-2', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', JenisPelanggaran:'Tidak mengerjakan tugas', Poin:5, Keterangan:'3x berturut-turut', Penanganan:'Pemanggilan siswa' }
-    ];
-    this.write('pelanggaran', pelanggaran);
-    const konseling = [
-      { ID:'KON-1', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', Topik:'Kedisiplinan', Masalah:'Sering terlambat dan menunda tugas', HasilKonseling:'Siswa berjanji memperbaiki manajemen waktu', TindakLanjut:'Pemantauan 2 minggu', Konselor:'Bu Ratna, S.Pd' }
-    ];
-    this.write('konseling', konseling);
-    const kolaborasi = [
-      { ID:'KOL-1', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', Jenis:'Pemanggilan Orang Tua', Tujuan:'Membahas kedisiplinan anak', Hasil:'Orang tua berkomitmen mendampingi di rumah', Petugas:'Bu Ratna, S.Pd' }
-    ];
-    this.write('kolaborasi', kolaborasi);
-    const kebiasaan = [
-      { ID:'HAB-1', Tanggal: ymd(today), SiswaID:'SIS-1', Nama:'Ahmad Fadillah', Kelas:'IX-A',
-        BangunPagiPukul:'05.00', IbadahSholat:'Subuh, Duhur, Ashar, Maghrib, Isya', IbadahDhuha:'Ya', IbadahTadarus:'Juz 5',
-        IbadahLainnya:'', OlahragaJenis:'Lari pagi', OlahragaDurasi:'20', BelajarMapel:'Matematika',
-        MakanMenu:'Nasi, sayur bayam, telur, buah', BermasyarakatKegiatan:'Kerja bakti lingkungan',
-        IstirahatPukul:'21.00', ParafOrtu:'Ya', ParafGuru:'', CatatanGuru:'' }
-    ];
-    this.write('kebiasaan', kebiasaan);
-    const masterPelanggaran = [
-      ['Terlambat masuk sekolah', 5, 'Ringan'],
-      ['Tidak memakai atribut lengkap', 5, 'Ringan'],
-      ['Tidak mengerjakan tugas/PR', 5, 'Ringan'],
-      ['Makan/minum di kelas saat KBM', 5, 'Ringan'],
-      ['Membuang sampah sembarangan', 5, 'Ringan'],
-      ['Tidak mengikuti upacara', 10, 'Ringan'],
-      ['Rambut/seragam tidak sesuai aturan', 10, 'Ringan'],
-      ['Membawa HP tanpa izin', 15, 'Sedang'],
-      ['Bolos jam pelajaran', 15, 'Sedang'],
-      ['Keluar kelas tanpa izin', 15, 'Sedang'],
-      ['Berkata tidak sopan kepada teman', 20, 'Sedang'],
-      ['Mencontek saat ujian', 25, 'Sedang'],
-      ['Merokok di lingkungan sekolah', 50, 'Berat'],
-      ['Berkelahi dengan teman', 50, 'Berat'],
-      ['Membawa/menggunakan barang terlarang', 75, 'Berat'],
-      ['Melawan/tidak sopan kepada guru', 75, 'Berat'],
-      ['Merusak fasilitas sekolah', 50, 'Berat'],
-      ['Bullying/perundungan', 75, 'Berat'],
-      ['Lainnya', 5, 'Lainnya']
-    ].map((r,i) => ({ ID:'MPL-'+(i+1), JenisPelanggaran:r[0], Poin:r[1], Kategori:r[2] }));
-    this.write('masterPelanggaran', masterPelanggaran);
-  }
+/* Header default per sheet — dipakai HANYA saat sheet belum ada / masih kosong,
+   supaya sheet baru otomatis dibuat dengan kolom yang benar tanpa mengganggu
+   sheet yang sudah berisi data (yang sudah ada headernya dipakai apa adanya). */
+var DEFAULT_HEADERS = {
+  Siswa: ['ID','NIS','Nama','Kelas','JenisKelamin','TempatTglLahir','Alamat','NamaOrtu','NoHPOrtu','Catatan'],
+  Absensi: ['ID','Tanggal','SiswaID','Nama','Kelas','Status','Keterangan'],
+  Pelanggaran: ['ID','Tanggal','SiswaID','Nama','Kelas','JenisPelanggaran','Poin','Keterangan','Penanganan'],
+  Konseling: ['ID','Tanggal','SiswaID','Nama','Kelas','Topik','Konselor','Masalah','HasilKonseling','TindakLanjut'],
+  Kolaborasi: ['ID','Tanggal','SiswaID','Nama','Kelas','Jenis','Petugas','Tujuan','Hasil'],
+  Kebiasaan: ['ID','Tanggal','SiswaID','Nama','Kelas','BangunPagiPukul','IbadahSholat','IbadahDhuha','IbadahTadarus',
+    'IbadahLainnya','OlahragaJenis','OlahragaDurasi','BelajarMapel','MakanMenu','BermasyarakatKegiatan',
+    'IstirahatPukul','ParafOrtu','ParafGuru','CatatanGuru'],
+  MasterPelanggaran: ['ID','JenisPelanggaran','Poin','Kategori'],
+  /* Kelas diisi daftar kelas tanggung jawab guru ini, dipisah koma (contoh:
+     "VII-A, VII-B"). KOSONGKAN kolom ini supaya guru bisa mencatat pelanggaran
+     untuk SEMUA kelas (lihat kelasListIncludes()). Status "Aktif"/"Nonaktif"
+     dipakai admin BK untuk menonaktifkan akun tanpa perlu menghapus barisnya. */
+  Guru: ['ID','Username','Password','Nama','Kelas','Status']
 };
 
-let adapter = RealAdapter;
+var ID_PREFIX = { siswa:'SIS', absensi:'ABS', pelanggaran:'PEL', konseling:'KON', kolaborasi:'KOL', kebiasaan:'HAB', masterPelanggaran:'MPL', guru:'GRU' };
 
-/* ---------------- UTIL ---------------- */
-function $(sel, ctx=document){ return ctx.querySelector(sel); }
-function $all(sel, ctx=document){ return Array.from(ctx.querySelectorAll(sel)); }
-function showLoading(v){ $('#loadingOverlay').classList.toggle('show', v); }
-function toast(msg, type=''){
-  const t = $('#toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (type ? ' ' + type : '');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
-}
-function fmtDate(d){
-  if (!d) return '-';
-  const dt = new Date(d);
-  if (isNaN(dt)) return d;
-  return dt.toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' });
-}
-function initials(name){ return (name||'?').trim().split(/\s+/).slice(0,2).map(s=>s[0]).join('').toUpperCase(); }
+/* ---------------- AKUN GURU MAPEL ----------------
+   Guru mapel TIDAK memakai ACCESS_TOKEN utama (itu tetap rahasia, hanya
+   dipegang Guru BK/admin). Mereka login pakai Username + Password yang
+   diatur admin lewat menu "Kelola Akun Guru Mapel". Setelah login sukses,
+   server menerbitkan "sessionToken" sementara (ditandatangani pakai
+   ACCESS_TOKEN sebagai kunci rahasia, lewat HMAC) yang isinya cuma peran
+   (guru) + daftar kelas tanggung jawabnya (kosong = semua kelas) + waktu
+   kadaluarsa. Token ini:
+   - Tidak pernah membuka akses ke data di luar Pelanggaran & kelas yang
+     diizinkan (server yang menegakkan ini di setiap request, bukan cuma
+     disembunyikan di tampilan).
+   - Otomatis kadaluarsa (lihat GURU_SESSION_TTL_MS) sehingga tidak perlu
+     disimpan di database mana pun, cukup diverifikasi ulang tiap request. */
+var GURU_SESSION_TTL_MS = 16 * 60 * 60 * 1000; // 16 jam
+var GURU_READABLE_TYPES = ['siswa', 'pelanggaran', 'masterPelanggaran'];
+var GURU_WRITABLE_TYPE = 'pelanggaran';
 
-/* ---------------- KIRIM WA KE ORANG TUA (manual, via wa.me — gratis, tanpa API pihak ketiga) ---------------- */
-/* Rapikan nomor HP orang tua ke format wa.me (62xxxxxxxxxx, tanpa spasi/strip/tanda +).
-   Menerima input umum orang Indonesia: 08xxx, +62xxx, 62xxx, atau 8xxx polos. */
-function formatPhoneWa(raw){
-  let d = String(raw || '').replace(/[^0-9]/g, '');
-  if (!d) return '';
-  if (d.startsWith('0')) d = '62' + d.slice(1);
-  else if (!d.startsWith('62')) d = '62' + d;
-  return d;
-}
-function buildAbsenWaText(siswa, absen){
-  const namaOrtu = (siswa && siswa.NamaOrtu) ? `Bpk/Ibu ${siswa.NamaOrtu}` : 'Bapak/Ibu Orang Tua/Wali';
-  const tgl = fmtDate(absen.Tanggal);
-  const jam = new Date().toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' });
-  const ket = absen.Keterangan ? `\nKeterangan: ${absen.Keterangan}` : '';
-  return `Yth. ${namaOrtu},\n\nKami informasikan bahwa ananda *${(siswa && siswa.Nama) || absen.Nama || '-'}* (Kelas ${(siswa && siswa.Kelas) || absen.Kelas || '-'}) tercatat *${absen.Status}* di sekolah pada ${tgl} pukul ${jam}.${ket}\n\nTerima kasih atas perhatiannya.\n— Pesan dari BK Digital`;
-}
-/* Buka wa.me dengan pesan sudah terisi — guru/BK tinggal tap "Kirim" di WhatsApp.
-   Tidak ada yang terkirim otomatis tanpa tap manual ini (gratis, tanpa API pihak ketiga). */
-function openWaForAbsen(absenId){
-  const absen = STATE.absensi.find(a => String(a.ID) === String(absenId));
-  if (!absen){ toast('Data absensi tidak ditemukan.', 'error'); return; }
-  const siswa = STATE.siswa.find(s => String(s.ID) === String(absen.SiswaID));
-  const phone = formatPhoneWa(siswa ? siswa.NoHPOrtu : '');
-  if (!phone){ toast('Nomor HP orang tua belum diisi untuk siswa ini.', 'error'); return; }
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(buildAbsenWaText(siswa, absen))}`;
-  window.open(url, '_blank');
-}
-function colorFromString(str){
-  const colors = ['#2F6F63','#E0932F','#3B7DD8','#D9614F','#8A5FC7','#3E9A63'];
-  let h = 0; for (let i=0;i<(str||'').length;i++) h = str.charCodeAt(i) + ((h<<5)-h);
-  return colors[Math.abs(h) % colors.length];
-}
-function uniqueClasses(){
-  const set = new Set(STATE.siswa.map(s => s.Kelas).filter(Boolean));
-  return Array.from(set).sort();
-}
-function siswaById(id){ return STATE.siswa.find(s => String(s.ID) === String(id)); }
-function isThisMonth(dateStr){
-  if (!dateStr) return false;
-  const d = new Date(dateStr); const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-}
+/* Daftar bawaan yang otomatis diisi HANYA saat sheet MasterPelanggaran baru
+   dibuat (pertama kali dipakai) dan masih kosong — supaya langsung ada opsi
+   dropdown tanpa perlu isi manual dulu. Sekolah bisa ubah/tambah/hapus lewat
+   menu Pengaturan di aplikasi kapan saja setelahnya, tanpa memengaruhi data
+   pelanggaran siswa yang sudah tercatat. */
+var DEFAULT_MASTER_PELANGGARAN = [
+  ['Terlambat masuk sekolah', 5, 'Ringan'],
+  ['Tidak memakai atribut lengkap', 5, 'Ringan'],
+  ['Tidak mengerjakan tugas/PR', 5, 'Ringan'],
+  ['Makan/minum di kelas saat KBM', 5, 'Ringan'],
+  ['Membuang sampah sembarangan', 5, 'Ringan'],
+  ['Tidak mengikuti upacara', 10, 'Ringan'],
+  ['Rambut/seragam tidak sesuai aturan', 10, 'Ringan'],
+  ['Membawa HP tanpa izin', 15, 'Sedang'],
+  ['Bolos jam pelajaran', 15, 'Sedang'],
+  ['Keluar kelas tanpa izin', 15, 'Sedang'],
+  ['Berkata tidak sopan kepada teman', 20, 'Sedang'],
+  ['Mencontek saat ujian', 25, 'Sedang'],
+  ['Merokok di lingkungan sekolah', 50, 'Berat'],
+  ['Berkelahi dengan teman', 50, 'Berat'],
+  ['Membawa/menggunakan barang terlarang', 75, 'Berat'],
+  ['Melawan/tidak sopan kepada guru', 75, 'Berat'],
+  ['Merusak fasilitas sekolah', 50, 'Berat'],
+  ['Bullying/perundungan', 75, 'Berat'],
+  ['Lainnya', 5, 'Lainnya']
+];
 
-/* ---------------- DATA LOADING ---------------- */
-async function loadAll(){
-  showLoading(true);
+/* ---------------- PENGATURAN (key-value, mis. Profil Sekolah) ---------------- */
+var SETTINGS_SHEET_NAME = 'Pengaturan';
+var SETTINGS_HEADERS = ['Key','Value'];
+
+/* ---------------- ENTRY POINTS ---------------- */
+function doGet(e){
   try{
-    const data = await adapter.getAllBatch();
-    TYPES.forEach(t => STATE[t] = data[t] || []);
-    STATE.masterPelanggaran = data.masterPelanggaran || [];
-    STATE.guru = data.guru || [];
-    applySettingsFromServer(data.pengaturan || {});
-    populateClassFilters();
-    renderCurrentPage();
-    renderDashboard();
+    var params = e.parameter || {};
+    var auth = resolveAuth(params.token);
+    var action = params.action;
+    if (action === 'getAll'){
+      var type = params.type;
+      assertCanAccessType(auth, type, 'read');
+      return jsonOut({ ok:true, data: filterForRole(auth, type, readSheet(type)) });
+    }
+    if (action === 'getAllBatch'){
+      return jsonOut({ ok:true, data: buildGetAllBatch(auth) });
+    }
+    if (action === 'getSettings'){
+      return jsonOut({ ok:true, data: readSettingsMap() });
+    }
+    return jsonOut({ ok:false, error:'Aksi GET tidak dikenal.' });
   }catch(err){
-    toast('Gagal memuat data: ' + err.message, 'error');
-  }finally{
-    showLoading(false);
+    return jsonOut({ ok:false, error: err.message });
   }
 }
 
-/* Terapkan Profil Sekolah yang datang dari server (Google Sheet / mode demo) dan
-   simpan salinannya di localStorage supaya lain kali app dibuka, identitas
-   sekolah langsung tampil seketika (dari cache) sebelum data server selesai
-   dimuat, lalu diperbarui lagi begitu respons server datang. */
-function applySettingsFromServer(map){
-  SCHOOL_NAME = map.NamaSekolah || '';
-  SCHOOL_YEAR = map.TahunPelajaran || '';
-  SCHOOL_LOGO = map.LogoSekolah || '';
-  localStorage.setItem('bk_school_name', SCHOOL_NAME);
-  localStorage.setItem('bk_school_year', SCHOOL_YEAR);
-  if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
-  else localStorage.removeItem('bk_school_logo');
-  renderSchoolProfile();
-}
+function doPost(e){
+  try{
+    var body = JSON.parse(e.postData.contents || '{}');
+    var action = body.action;
+    var type = body.type;
 
-function populateClassFilters(){
-  const classes = uniqueClasses();
-  const selectors = ['#filterKelasSiswa','#filterKelasAbsensi','#filterKelasPelanggaran','#filterKelasKonseling','#filterKelasKebiasaan','#reportKelas'];
-  selectors.forEach(sel => {
-    const el = $(sel); if (!el) return;
-    const current = el.value;
-    el.innerHTML = '<option value="">Semua Kelas</option>' + classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-    el.value = current;
-  });
-  populateReportSiswaSelect();
-}
+    // loginGuru dipanggil SEBELUM punya token apapun, jadi ditangani
+    // terpisah dari alur resolveAuth di bawah. Tetap butuh ACCESS_TOKEN
+    // sudah diset di Script Properties (dipakai sebagai kunci tanda tangan
+    // sessionToken), makanya tetap memanggil ensureAccessTokenConfigured().
+    if (action === 'loginGuru'){
+      ensureAccessTokenConfigured();
+      var session = loginGuru(body.username, body.password);
+      return jsonOut({ ok:true, data: session });
+    }
 
-function populateReportSiswaSelect(){
-  const el = $('#reportSiswa'); if (!el) return;
-  const current = el.value;
-  const sorted = STATE.siswa.slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
-  el.innerHTML = '<option value="">Pilih siswa...</option>' + sorted.map(s => `<option value="${escapeHtml(s.ID)}">${escapeHtml(s.Nama)} — ${escapeHtml(s.Kelas)}</option>`).join('');
-  el.value = current;
-}
+    var auth = resolveAuth(body.token);
 
-/* ---------------- NAVIGATION ---------------- */
-function goToPage(page){
-  currentPage = page;
-  $all('.page').forEach(p => p.classList.remove('active'));
-  $(`#page-${page}`)?.classList.add('active');
-  $all('.nav-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  $all('.bn-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { dashboard:'Dashboard', siswa:'Data Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', kebiasaan:'7 Kebiasaan Anak Indonesia Hebat', laporan:'Laporan' };
-  $('#pageTitle').textContent = titles[page] || page;
-  closeMoreSheet();
-  hideSearchDropdown();
-  renderCurrentPage();
-}
-function renderCurrentPage(q){
-  if (currentPage === 'dashboard') renderDashboard();
-  if (currentPage === 'siswa') renderSiswa(q);
-  if (currentPage === 'absensi') renderAbsensi(q);
-  if (currentPage === 'pelanggaran') renderPelanggaran(q);
-  if (currentPage === 'konseling') renderKonseling(q);
-  if (currentPage === 'kolaborasi') renderKolaborasi(q);
-  if (currentPage === 'kebiasaan') renderKebiasaan(q);
-}
-
-$all('.nav-item[data-page]').forEach(n => n.addEventListener('click', e => { e.preventDefault(); goToPage(n.dataset.page); }));
-$all('.bn-item[data-page]').forEach(n => n.addEventListener('click', e => { e.preventDefault(); goToPage(n.dataset.page); }));
-
-/* mobile more sheet */
-function openMoreSheet(){ $('#moreSheet').classList.add('open'); $('#sheetBackdrop').classList.add('open'); }
-function closeMoreSheet(){ $('#moreSheet').classList.remove('open'); $('#sheetBackdrop').classList.remove('open'); }
-$('#bnMore').addEventListener('click', e => { e.preventDefault(); openMoreSheet(); });
-$('#sheetBackdrop').addEventListener('click', closeMoreSheet);
-$all('#moreSheet .nav-item[data-page]').forEach(n => n.addEventListener('click', e => { e.preventDefault(); goToPage(n.dataset.page); }));
-
-$('#refreshBtn').addEventListener('click', loadAll);
-
-/* ---------------- PENCARIAN GLOBAL ----------------
-   Ketik di kotak pencarian atas untuk:
-   1) Memfilter tabel/kartu di halaman yang sedang dibuka (siswa, absensi,
-      pelanggaran, konseling, kolaborasi, kebiasaan), dan
-   2) Menampilkan dropdown hasil pencarian siswa lintas halaman — klik salah
-      satu hasil untuk langsung membuka Laporan Individu siswa tersebut. */
-$('#globalSearch').addEventListener('input', e => {
-  const q = e.target.value.trim().toLowerCase();
-  renderCurrentPage(q || undefined);
-  if (!q || q.length < 2){ hideSearchDropdown(); return; }
-  renderSearchDropdown(q);
-});
-$('#globalSearch').addEventListener('focus', e => {
-  const q = e.target.value.trim().toLowerCase();
-  if (q.length >= 2) renderSearchDropdown(q);
-});
-document.addEventListener('click', e => {
-  if (!e.target.closest('.search-box') && !e.target.closest('#searchDropdown')) hideSearchDropdown();
-});
-
-function hideSearchDropdown(){ const el = $('#searchDropdown'); if (el) el.classList.remove('open'); }
-
-function renderSearchDropdown(q){
-  const dd = $('#searchDropdown');
-  if (!dd) return;
-
-  const matchSiswa = STATE.siswa.filter(s =>
-    (s.Nama||'').toLowerCase().includes(q) || (s.NIS||'').toString().toLowerCase().includes(q) || (s.Kelas||'').toLowerCase().includes(q)
-  ).slice(0, 6);
-
-  const countsFor = (id) => ({
-    absensiAlpa: STATE.absensi.filter(a => String(a.SiswaID)===String(id) && a.Status==='Alpa').length,
-    pelanggaran: STATE.pelanggaran.filter(p => String(p.SiswaID)===String(id)).length,
-    konseling: STATE.konseling.filter(k => String(k.SiswaID)===String(id)).length
-  });
-
-  if (!matchSiswa.length){
-    dd.innerHTML = `<div class="search-dd-empty">Tidak ada siswa yang cocok dengan "${escapeHtml(q)}".</div>`;
-  } else {
-    dd.innerHTML = matchSiswa.map(s => {
-      const c = countsFor(s.ID);
-      return `<div class="search-dd-item">
-        <span class="avatar-ring" style="width:28px;height:28px;font-size:10.5px;background:${colorFromString(s.Nama)}">${escapeHtml(initials(s.Nama))}</span>
-        <span class="search-dd-info">
-          <span class="search-dd-name">${escapeHtml(s.Nama)}</span>
-          <span class="search-dd-sub">${escapeHtml(s.Kelas||'-')} · NIS ${escapeHtml(s.NIS||'-')} ${c.pelanggaran?`· ${c.pelanggaran} pelanggaran`:''} ${c.absensiAlpa?`· ${c.absensiAlpa}x alpa`:''}</span>
-        </span>
-        <span class="search-dd-actions">
-          <button type="button" class="icon-btn-sm" data-quick-absensi="${escapeHtml(s.ID)}" title="Catat Absensi"><i class="fa-solid fa-calendar-check"></i></button>
-          <button type="button" class="icon-btn-sm" data-goto-siswa="${escapeHtml(s.ID)}" title="Lihat Laporan"><i class="fa-solid fa-file-lines"></i></button>
-        </span>
-      </div>`;
-    }).join('');
+    if (action === 'getAll'){
+      assertCanAccessType(auth, type, 'read');
+      return jsonOut({ ok:true, data: filterForRole(auth, type, readSheet(type)) });
+    }
+    if (action === 'getAllBatch'){
+      return jsonOut({ ok:true, data: buildGetAllBatch(auth) });
+    }
+    if (action === 'getSettings'){
+      return jsonOut({ ok:true, data: readSettingsMap() });
+    }
+    if (action === 'saveSettings'){
+      assertIsAdmin(auth, 'mengubah Pengaturan');
+      var savedSettings = saveSettingsMap(body.data || {});
+      return jsonOut({ ok:true, data: savedSettings });
+    }
+    if (action === 'create'){
+      assertCanAccessType(auth, type, 'write');
+      assertGuruDataInOwnKelas(auth, type, body.data || {});
+      var row = createRow(type, body.data || {});
+      return jsonOut({ ok:true, data: row });
+    }
+    if (action === 'update'){
+      assertCanAccessType(auth, type, 'write');
+      assertGuruOwnsExistingRow(auth, type, body.id);
+      assertGuruDataInOwnKelas(auth, type, body.data || {});
+      var updated = updateRow(type, body.id, body.data || {});
+      return jsonOut({ ok:true, data: updated });
+    }
+    if (action === 'delete'){
+      assertCanAccessType(auth, type, 'write');
+      assertGuruOwnsExistingRow(auth, type, body.id);
+      deleteRow(type, body.id);
+      return jsonOut({ ok:true });
+    }
+    if (action === 'importBulk'){
+      assertIsAdmin(auth, 'mengimpor data massal');
+      var result = importBulk(type, body.rows || [], body.matchField || 'NIS');
+      return jsonOut({ ok:true, data: result });
+    }
+    if (action === 'bulkInsert'){
+      assertIsAdmin(auth, 'menyimpan data massal');
+      var bulkResult = bulkInsert(type, body.rows || []);
+      return jsonOut({ ok:true, data: bulkResult });
+    }
+    return jsonOut({ ok:false, error:'Aksi POST tidak dikenal.' });
+  }catch(err){
+    return jsonOut({ ok:false, error: err.message });
   }
-  dd.classList.add('open');
 }
 
-document.addEventListener('click', e => {
-  const btn = e.target.closest('[data-goto-siswa]');
-  if (btn){
-    const id = btn.dataset.gotoSiswa;
-    hideSearchDropdown();
-    $('#globalSearch').value = '';
-    goToPage('laporan');
-    $('#reportType').value = 'individu';
-    $('#reportType').dispatchEvent(new Event('change'));
-    $('#reportSiswa').value = id;
-    $('#btnGenerateReport').click();
+/* ---------------- AUTH ---------------- */
+function ensureAccessTokenConfigured(){
+  var expected = PropertiesService.getScriptProperties().getProperty('ACCESS_TOKEN');
+  if (!expected){
+    // ACCESS_TOKEN belum diset di Script Properties -> TOLAK semua permintaan.
+    // (Sebelumnya versi ini malah membiarkan API terbuka tanpa token sama sekali
+    // selama belum diset, yang berbahaya karena siapapun yang tahu URL Web App
+    // bisa membaca/mengubah/menghapus seluruh data siswa. Sekarang defaultnya
+    // aman: API terkunci total sampai ACCESS_TOKEN diisi.)
+    throw new Error('ACCESS_TOKEN belum diset di Script Properties. Buka Project Settings > Script Properties, tambahkan ACCESS_TOKEN, lalu deploy ulang sebelum menggunakan aplikasi.');
+  }
+  return expected;
+}
+
+/* Menentukan siapa yang memanggil API dari token yang dikirim:
+   - Cocok dengan ACCESS_TOKEN master -> role 'admin' (Guru BK), akses penuh.
+   - Selain itu dicoba sebagai sessionToken hasil loginGuru() -> role 'guru',
+     akses dibatasi lewat assertCanAccessType()/filterForRole() di bawah.
+   Melempar Error kalau token kosong/salah/kadaluarsa. */
+function resolveAuth(token){
+  var expected = ensureAccessTokenConfigured();
+  if (token && String(token) === String(expected)){
+    return { role:'admin', kelas:null, nama:'Admin BK', username:'admin' };
+  }
+  var payload = verifyGuruSession(token);
+  return { role:'guru', kelas: payload.k || [], nama: payload.n || '', username: payload.u || '' };
+}
+
+function assertIsAdmin(auth, actionLabel){
+  if (auth.role !== 'admin') throw new Error('Hanya akun Admin/Guru BK yang bisa ' + actionLabel + '.');
+}
+
+/* Guru mapel hanya boleh MEMBACA Siswa/Pelanggaran/Template Pelanggaran, dan
+   hanya boleh MENULIS (tambah/ubah/hapus) ke data Pelanggaran. Semua tipe
+   data lain (Absensi, Konseling, Kolaborasi, Kebiasaan, Pengaturan, akun
+   Guru sendiri) tertutup total untuk role guru, ditegakkan di server -
+   bukan cuma disembunyikan di tampilan, supaya tidak bisa dilewati lewat
+   DevTools/panggilan API langsung. */
+function assertCanAccessType(auth, type, mode){
+  if (auth.role === 'admin') return;
+  if (mode === 'read'){
+    if (GURU_READABLE_TYPES.indexOf(type) === -1){
+      throw new Error('Akun Guru Mapel tidak memiliki akses ke data ini.');
+    }
     return;
   }
-  const absBtn = e.target.closest('[data-quick-absensi]');
-  if (absBtn){
-    const id = absBtn.dataset.quickAbsensi;
-    hideSearchDropdown();
-    $('#globalSearch').value = '';
-    goToPage('absensi');
-    openForm('absensi', null, { SiswaID: id });
+  if (type !== GURU_WRITABLE_TYPE){
+    throw new Error('Akun Guru Mapel hanya bisa mencatat data Pelanggaran.');
   }
-});
-
-/* ---------------- DROPDOWN JENIS PELANGGARAN (dari Template Pelanggaran) ---------------- */
-document.addEventListener('change', e => {
-  if (!e.target.classList.contains('jenis-pelanggaran-select')) return;
-  const wrap = e.target.closest('.jenis-pelanggaran-picker');
-  const hidden = wrap.querySelector('input[type=hidden]');
-  const customInput = wrap.querySelector('.jenis-pelanggaran-custom');
-  const form = wrap.closest('form');
-  const poinInput = form ? form.querySelector('[name="Poin"]') : null;
-  if (e.target.value === '__custom__'){
-    customInput.classList.remove('hidden');
-    customInput.value = '';
-    hidden.value = '';
-    customInput.focus();
-  } else {
-    customInput.classList.add('hidden');
-    hidden.value = e.target.value;
-    const opt = e.target.selectedOptions[0];
-    const poin = opt ? opt.dataset.poin : '';
-    if (poinInput && poin !== undefined && poin !== '') poinInput.value = poin;
-  }
-});
-document.addEventListener('input', e => {
-  if (!e.target.classList.contains('jenis-pelanggaran-custom')) return;
-  const wrap = e.target.closest('.jenis-pelanggaran-picker');
-  wrap.querySelector('input[type=hidden]').value = e.target.value;
-});
-
-/* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
-function siswaPickerFilter(wrap, query){
-  const q = (query||'').trim().toLowerCase();
-  const kelasSel = wrap.querySelector('.siswa-picker-kelas');
-  const kelas = kelasSel ? kelasSel.value : '';
-  let list = STATE.siswa;
-  if (kelas) list = list.filter(s => s.Kelas === kelas);
-  return list.filter(s => !q ||
-    (s.Nama||'').toLowerCase().includes(q) ||
-    (s.NIS||'').toString().toLowerCase().includes(q) ||
-    (s.Kelas||'').toLowerCase().includes(q)
-  ).slice(0, 50);
 }
-function siswaPickerRenderDropdown(wrap, query){
-  const dd = wrap.querySelector('.siswa-picker-dropdown');
-  const matches = siswaPickerFilter(wrap, query);
-  dd.innerHTML = matches.length ? matches.map(s => `
-      <button type="button" class="search-dd-item" data-pick-siswa="${escapeHtml(s.ID)}">
-        <span class="avatar-ring" style="width:26px;height:26px;font-size:10px;background:${colorFromString(s.Nama)}">${escapeHtml(initials(s.Nama))}</span>
-        <span class="search-dd-info"><span class="search-dd-name">${escapeHtml(s.Nama)}</span><span class="search-dd-sub">${escapeHtml(s.Kelas||'-')} · NIS ${escapeHtml(s.NIS||'-')}</span></span>
-      </button>`).join('')
-    : '<div class="search-dd-empty">Siswa tidak ditemukan untuk filter ini.</div>';
-  dd.classList.add('open');
-}
-document.addEventListener('input', e => {
-  if (!e.target.classList.contains('siswa-picker-input')) return;
-  const wrap = e.target.closest('.siswa-picker');
-  wrap.querySelector('input[type=hidden]').value = '';
-  siswaPickerRenderDropdown(wrap, e.target.value);
-});
-document.addEventListener('focusin', e => {
-  if (!e.target.classList.contains('siswa-picker-input')) return;
-  const wrap = e.target.closest('.siswa-picker');
-  siswaPickerRenderDropdown(wrap, e.target.value);
-});
-document.addEventListener('change', e => {
-  if (!e.target.classList.contains('siswa-picker-kelas')) return;
-  const wrap = e.target.closest('.siswa-picker');
-  const input = wrap.querySelector('.siswa-picker-input');
-  wrap.querySelector('input[type=hidden]').value = '';
-  input.value = '';
-  siswaPickerRenderDropdown(wrap, '');
-  input.focus();
-});
-document.addEventListener('click', e => {
-  const pickBtn = e.target.closest('[data-pick-siswa]');
-  if (pickBtn && pickBtn.closest('.siswa-picker-dropdown')){
-    const wrap = pickBtn.closest('.siswa-picker');
-    const s = siswaById(pickBtn.dataset.pickSiswa);
-    if (!s) return;
-    wrap.querySelector('input[type=hidden]').value = s.ID;
-    wrap.querySelector('.siswa-picker-input').value = `${s.Nama} — ${s.Kelas||'-'}`;
-    wrap.querySelector('.siswa-picker-dropdown').classList.remove('open');
-    return;
+
+/* Saat guru CREATE/UPDATE data Pelanggaran, pastikan kolom Kelas yang
+   dikirim memang salah satu kelas tanggung jawabnya — KECUALI guru itu
+   tidak dibatasi kelas sama sekali (auth.kelas kosong = akses semua kelas),
+   dalam hal itu kelasListIncludes() selalu mengembalikan true. (Kolom Kelas
+   ini otomatis terisi di frontend dari siswa yang dipilih, tapi tetap dicek
+   ulang di server sebagai lapisan pertahanan kedua.) */
+function assertGuruDataInOwnKelas(auth, type, data){
+  if (auth.role !== 'guru' || type !== GURU_WRITABLE_TYPE) return;
+  var kelas = String(data.Kelas || '').trim();
+  if (!kelas || !kelasListIncludes(auth.kelas, kelas)){
+    throw new Error('Anda hanya bisa mencatat pelanggaran untuk siswa di kelas yang menjadi tanggung jawab Anda.');
   }
-  $all('.siswa-picker-dropdown.open').forEach(dd => {
-    if (!dd.closest('.siswa-picker').contains(e.target)) dd.classList.remove('open');
+}
+
+/* Saat guru UPDATE/DELETE data Pelanggaran yang SUDAH ADA, pastikan baris
+   itu memang milik salah satu kelas tanggung jawabnya (atau guru itu tidak
+   dibatasi kelas sama sekali) - supaya guru mapel satu tidak bisa
+   mengubah/menghapus catatan pelanggaran kelas guru lain yang memang
+   dibatasi kelasnya. */
+function assertGuruOwnsExistingRow(auth, type, id){
+  if (auth.role !== 'guru' || type !== GURU_WRITABLE_TYPE) return;
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var rowIdx = findRowIndexById(sheet, headers, id);
+  if (rowIdx === -1) throw new Error('Data dengan ID ' + id + ' tidak ditemukan.');
+  var kelasCol = headers.indexOf('Kelas');
+  var rowKelas = kelasCol === -1 ? '' : String(sheet.getRange(rowIdx, kelasCol+1).getValue() || '').trim();
+  if (!kelasListIncludes(auth.kelas, rowKelas)){
+    throw new Error('Anda tidak memiliki akses untuk mengubah/menghapus data pelanggaran kelas ini.');
+  }
+}
+
+/* Kalau kelasList KOSONG (guru tidak dibatasi kelas tertentu saat akunnya
+   dibuat), guru itu dianggap punya akses ke SEMUA kelas -> selalu true.
+   Kalau kelasList terisi, hanya kelas yang ada di daftar itu yang diizinkan,
+   sama seperti sebelumnya. */
+function kelasListIncludes(kelasList, kelas){
+  if (!kelasList || !kelasList.length) return true; // tidak dibatasi -> semua kelas diizinkan
+  var target = String(kelas || '').trim().toLowerCase();
+  return kelasList.some(function(k){ return String(k).trim().toLowerCase() === target; });
+}
+
+/* Menyaring hasil readSheet() sesuai role. Admin selalu dapat semua baris.
+   Guru cuma dapat baris Siswa/Pelanggaran yang Kelas-nya ada di daftar
+   tanggung jawabnya (atau SEMUA baris kalau guru itu tidak dibatasi kelas
+   sama sekali — auth.kelas kosong); Template Pelanggaran (tidak berkolom
+   Kelas) tetap ditampilkan utuh karena memang cuma daftar referensi umum. */
+function filterForRole(auth, type, rows){
+  if (auth.role === 'admin') return rows;
+  if (type === 'masterPelanggaran') return rows;
+  if (type === 'siswa' || type === 'pelanggaran'){
+    return rows.filter(function(r){ return kelasListIncludes(auth.kelas, r.Kelas); });
+  }
+  return []; // tipe lain (absensi, konseling, kolaborasi, kebiasaan, guru) tertutup untuk guru
+}
+
+function buildGetAllBatch(auth){
+  var out = {};
+  Object.keys(TYPE_SHEET).forEach(function(t){
+    out[t] = (auth.role === 'admin' || GURU_READABLE_TYPES.indexOf(t) !== -1)
+      ? filterForRole(auth, t, readSheet(t))
+      : [];
   });
-});
-
-/* ---------------- DASHBOARD ---------------- */
-function renderDashboard(){
-  // Chart.js gagal (dan bisa "macet" sampai reload penuh) kalau dipaksa menggambar ke
-  // canvas yang sedang disembunyikan (halaman Dashboard tidak sedang aktif). Jadi kalau
-  // dipanggil dari halaman lain (mis. setelah simpan Absensi/Pelanggaran), cukup lewati —
-  // grafik akan otomatis digambar ulang dengan data terbaru begitu Dashboard dibuka lagi.
-  if (currentPage !== 'dashboard') return;
-
-  $('#statSiswa').textContent = STATE.siswa.length;
-  $('#statAlpa').textContent = STATE.absensi.filter(a => a.Status === 'Alpa' && isThisMonth(a.Tanggal)).length;
-  $('#statPelanggaran').textContent = STATE.pelanggaran.filter(p => isThisMonth(p.Tanggal)).length;
-  $('#statKonseling').textContent = STATE.konseling.filter(k => isThisMonth(k.Tanggal)).length;
-
-  renderTrendChart();
-  renderPelanggaranChart();
-  renderAbsensiChart('chartAbsensi', STATE.absensi);
-  renderActivityList();
+  out.pengaturan = readSettingsMap();
+  return out;
 }
 
-function last6Months(){
-  const out = [];
-  const now = new Date();
-  for (let i=5;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    out.push({ label: d.toLocaleDateString('id-ID',{month:'short',year:'2-digit'}), y:d.getFullYear(), m:d.getMonth() });
+/* ---------------- LOGIN GURU MAPEL ---------------- */
+function loginGuru(username, password){
+  username = String(username || '').trim();
+  password = String(password || '');
+  if (!username || !password) throw new Error('Username dan password wajib diisi.');
+
+  var rows = readSheet('guru');
+  var match = null;
+  for (var i=0;i<rows.length;i++){
+    if (String(rows[i].Username || '').trim().toLowerCase() === username.toLowerCase()){
+      match = rows[i];
+      break;
+    }
+  }
+  if (!match) throw new Error('Username tidak ditemukan.');
+  if (String(match.Status || 'Aktif').trim().toLowerCase() === 'nonaktif'){
+    throw new Error('Akun ini sudah dinonaktifkan. Hubungi Guru BK/admin.');
+  }
+  if (String(match.Password || '') !== password){
+    throw new Error('Password salah.');
+  }
+  // Kolom Kelas boleh KOSONG -> kelasList jadi [] -> guru ini diberi akses
+  // ke SEMUA kelas (lihat kelasListIncludes()). Kalau diisi, hanya kelas
+  // yang disebutkan yang bisa diakses, seperti sebelumnya.
+  var kelasList = String(match.Kelas || '').split(',').map(function(k){ return k.trim(); }).filter(function(k){ return !!k; });
+
+  var token = makeGuruSession({ username: match.Username, nama: match.Nama, kelas: kelasList });
+  return { sessionToken: token, nama: match.Nama, kelas: kelasList, username: match.Username };
+}
+
+/* sessionToken = <payload base64>.<tanda tangan HMAC base64>. Payload berisi
+   username, nama, daftar kelas (kosong = semua kelas), dan waktu kadaluarsa.
+   Ditandatangani pakai ACCESS_TOKEN sebagai kunci rahasia supaya server bisa
+   memverifikasi ulang tiap request TANPA perlu menyimpan sesi di mana pun
+   (stateless), dan guru tidak pernah melihat/memegang ACCESS_TOKEN aslinya. */
+function makeGuruSession(obj){
+  var secret = ensureAccessTokenConfigured();
+  var payload = { u: obj.username, n: obj.nama, k: obj.kelas, exp: Date.now() + GURU_SESSION_TTL_MS };
+  var payloadB64 = Utilities.base64EncodeWebSafe(JSON.stringify(payload));
+  var sigB64 = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payloadB64, secret));
+  return payloadB64 + '.' + sigB64;
+}
+
+function verifyGuruSession(token){
+  var secret = ensureAccessTokenConfigured();
+  var parts = String(token || '').split('.');
+  if (parts.length !== 2){
+    throw new Error('Sesi login tidak valid. Silakan login ulang.');
+  }
+  var payloadB64 = parts[0], sigB64 = parts[1];
+  var expectedSigB64 = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payloadB64, secret));
+  if (sigB64 !== expectedSigB64){
+    throw new Error('Sesi login tidak valid. Silakan login ulang.');
+  }
+  var payload;
+  try{
+    payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(payloadB64)).getDataAsString());
+  }catch(parseErr){
+    throw new Error('Sesi login tidak valid. Silakan login ulang.');
+  }
+  if (!payload.exp || Date.now() > payload.exp){
+    throw new Error('Sesi login sudah kadaluarsa. Silakan login ulang.');
+  }
+  return payload;
+}
+
+/* ---------------- SHEET HELPERS ---------------- */
+function getSheet(type){
+  var name = TYPE_SHEET[type];
+  if (!name) throw new Error('Tipe data tidak dikenal: ' + type);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(name);
+  if (!sheet){
+    sheet = ss.insertSheet(name);
+    var headers = DEFAULT_HEADERS[name] || ['ID'];
+    sheet.getRange(1,1,1,headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    if (type === 'masterPelanggaran'){
+      var seedRows = DEFAULT_MASTER_PELANGGARAN.map(function(r, i){
+        return ['MPL-' + (i+1), r[0], r[1], r[2]];
+      });
+      sheet.getRange(2,1,seedRows.length, headers.length).setValues(seedRows);
+    }
+  }
+  return sheet;
+}
+
+function getHeaders(sheet){
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  return sheet.getRange(1,1,1,lastCol).getValues()[0].map(function(h){ return String(h).trim(); });
+}
+
+function readSheet(type){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2,1,lastRow-1, headers.length).getValues();
+  var out = [];
+  for (var i=0;i<values.length;i++){
+    var row = values[i];
+    var isEmpty = row.every(function(c){ return c === '' || c === null; });
+    if (isEmpty) continue;
+    var obj = {};
+    for (var c=0;c<headers.length;c++){
+      if (!headers[c]) continue;
+      var val = row[c];
+      if (val instanceof Date){
+        val = Utilities.formatDate(val, Session.getScriptTimeZone() || 'Asia/Jakarta', 'yyyy-MM-dd');
+      }
+      obj[headers[c]] = val;
+    }
+    obj._row = i + 2; // internal, not required by frontend but harmless if ignored
+    out.push(obj);
   }
   return out;
 }
-function destroyChart(id){ if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
 
-function renderTrendChart(){
-  const months = last6Months();
-  const pelData = months.map(mo => STATE.pelanggaran.filter(p => { const d=new Date(p.Tanggal); return d.getFullYear()===mo.y && d.getMonth()===mo.m; }).length);
-  const alpaData = months.map(mo => STATE.absensi.filter(a => a.Status==='Alpa' && (()=>{ const d=new Date(a.Tanggal); return d.getFullYear()===mo.y && d.getMonth()===mo.m; })()).length);
-  destroyChart('trend');
-  charts.trend = new Chart($('#chartTrend'), {
-    type:'line',
-    data:{ labels: months.map(m=>m.label), datasets:[
-      { label:'Pelanggaran', data:pelData, borderColor:'#D9614F', backgroundColor:'rgba(217,97,79,.12)', tension:.35, fill:true },
-      { label:'Alpa', data:alpaData, borderColor:'#2F6F63', backgroundColor:'rgba(47,111,99,.12)', tension:.35, fill:true }
-    ]},
-    options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{ size:11 } } } }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }
-  });
-}
-
-function renderPelanggaranChart(){
-  const counts = {};
-  STATE.pelanggaran.forEach(p => { counts[p.JenisPelanggaran || 'Lainnya'] = (counts[p.JenisPelanggaran || 'Lainnya']||0)+1; });
-  const entries = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  destroyChart('pel');
-  charts.pel = new Chart($('#chartPelanggaran'), {
-    type:'bar',
-    data:{ labels: entries.map(e=>e[0]), datasets:[{ data: entries.map(e=>e[1]), backgroundColor:'#E0932F', borderRadius:6, maxBarThickness:28 }] },
-    options:{ indexAxis:'y', responsive:true, plugins:{ legend:{ display:false } }, scales:{ x:{ beginAtZero:true, ticks:{ precision:0 } } } }
-  });
-}
-
-function renderAbsensiChart(canvasId, absensiData){
-  const statuses = ['Hadir','Sakit','Izin','Alpa'];
-  const colorMap = { Hadir:'#3E9A63', Sakit:'#3B7DD8', Izin:'#E0932F', Alpa:'#D9614F' };
-  const counts = statuses.map(s => absensiData.filter(a=>a.Status===s).length);
-  destroyChart(canvasId);
-  const isDoughnut = canvasId === 'chartAbsensi';
-  charts[canvasId] = new Chart($('#'+canvasId), {
-    type: isDoughnut ? 'doughnut' : 'bar',
-    data:{ labels: statuses, datasets:[{ data: counts, backgroundColor: statuses.map(s=>colorMap[s]), borderRadius: isDoughnut?0:6, borderWidth: isDoughnut?2:0, borderColor:'#fff' }] },
-    options:{ responsive:true, plugins:{ legend:{ position: isDoughnut?'bottom':'display', labels:{ boxWidth:10, font:{size:11} } } }, scales: isDoughnut? {} : { y:{ beginAtZero:true, ticks:{precision:0} } } }
-  });
-}
-
-function renderActivityList(){
-  const items = [];
-  STATE.pelanggaran.forEach(p => items.push({ t:p.Tanggal, html:`<b>${escapeHtml(p.Nama||'-')}</b> — pelanggaran: ${escapeHtml(p.JenisPelanggaran||'-')}`, color:'#D9614F' }));
-  STATE.konseling.forEach(k => items.push({ t:k.Tanggal, html:`<b>${escapeHtml(k.Nama||'-')}</b> — sesi konseling: ${escapeHtml(k.Topik||'-')}`, color:'#3E9A63' }));
-  STATE.kolaborasi.forEach(k => items.push({ t:k.Tanggal, html:`<b>${escapeHtml(k.Nama||'-')}</b> — ${escapeHtml(k.Jenis||'-')}`, color:'#3B7DD8' }));
-  STATE.absensi.filter(a=>a.Status==='Alpa').forEach(a => items.push({ t:a.Tanggal, html:`<b>${escapeHtml(a.Nama||'-')}</b> — tidak hadir tanpa keterangan`, color:'#E0932F' }));
-  items.sort((a,b) => new Date(b.t) - new Date(a.t));
-  const list = $('#activityList');
-  if (!items.length){ list.innerHTML = '<li class="muted" style="border:none;padding:20px 4px;text-align:center">Belum ada aktivitas.</li>'; return; }
-  list.innerHTML = items.slice(0,8).map(it => `<li><span class="activity-dot" style="background:${it.color}"></span><div><div>${it.html}</div><div class="a-time">${fmtDate(it.t)}</div></div></li>`).join('');
-}
-
-/* ---------------- DATA SISWA ---------------- */
-function renderSiswa(searchQuery){
-  const kelas = $('#filterKelasSiswa').value;
-  let rows = STATE.siswa.filter(s => !kelas || s.Kelas === kelas);
-  if (searchQuery) rows = rows.filter(s =>
-    (s.Nama||'').toLowerCase().includes(searchQuery) ||
-    (s.NIS||'').toString().toLowerCase().includes(searchQuery) ||
-    (s.NamaOrtu||'').toLowerCase().includes(searchQuery)
-  );
-  const tbody = $('#tableSiswa tbody');
-  const emptyState = $('#page-siswa .empty-state');
-  if (!rows.length){ tbody.innerHTML=''; emptyState.style.display='block'; return; }
-  emptyState.style.display='none';
-  tbody.innerHTML = rows.map(s => {
-    const pelanggaranCount = STATE.pelanggaran.filter(p => String(p.SiswaID)===String(s.ID)).length;
-    const status = pelanggaranCount >= 3 ? { txt:'Perlu Perhatian', cls:'danger' } : pelanggaranCount >= 1 ? { txt:'Pemantauan', cls:'amber' } : { txt:'Baik', cls:'success' };
-    return `<tr>
-      <td>${escapeHtml(s.NIS||'-')}</td>
-      <td><div style="display:flex;align-items:center;gap:10px">
-            <span class="avatar-ring" style="width:30px;height:30px;font-size:11px;background:${colorFromString(s.Nama)}">${escapeHtml(initials(s.Nama))}</span>
-            ${escapeHtml(s.Nama||'-')}
-          </div></td>
-      <td>${escapeHtml(s.Kelas||'-')}</td>
-      <td>${escapeHtml(s.JenisKelamin||'-')}</td>
-      <td>${escapeHtml(s.NamaOrtu||'-')}</td>
-      <td>${escapeHtml(s.NoHPOrtu||'-')}</td>
-      <td><span class="badge badge--${status.cls}"><span class="badge-dot" style="background:currentColor"></span>${status.txt}</span></td>
-      <td><div class="row-actions">
-            <button class="icon-btn-sm" data-edit="siswa" data-id="${escapeHtml(s.ID)}"><i class="fa-solid fa-pen"></i></button>
-            <button class="icon-btn-sm danger" data-del="siswa" data-id="${escapeHtml(s.ID)}"><i class="fa-solid fa-trash"></i></button>
-          </div></td>
-    </tr>`;
-  }).join('');
-}
-$('#filterKelasSiswa').addEventListener('change', () => renderSiswa());
-
-/* ---------------- ABSENSI ---------------- */
-function renderAbsensi(searchQuery){
-  const tgl = $('#filterTglAbsensi').value;
-  const kelas = $('#filterKelasAbsensi').value;
-  const status = $('#filterStatusAbsensi').value;
-  let rows = STATE.absensi.filter(a => (!tgl || a.Tanggal===tgl) && (!kelas || a.Kelas===kelas) && (!status || a.Status===status));
-  if (searchQuery) rows = rows.filter(a => (a.Nama||'').toLowerCase().includes(searchQuery) || (a.Keterangan||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  renderAbsensiChart('chartAbsensiPage', rows);
-  const tbody = $('#tableAbsensi tbody');
-  const emptyState = $('#page-absensi .empty-state');
-  if (!rows.length){ tbody.innerHTML=''; emptyState.style.display='block'; return; }
-  emptyState.style.display='none';
-  const badgeCls = { Hadir:'success', Sakit:'info', Izin:'amber', Alpa:'danger' };
-  tbody.innerHTML = rows.map(a => `<tr>
-      <td>${fmtDate(a.Tanggal)}</td><td>${escapeHtml(a.Nama||'-')}</td><td>${escapeHtml(a.Kelas||'-')}</td>
-      <td><span class="badge badge--${badgeCls[a.Status]||'muted'}">${escapeHtml(a.Status||'-')}</span></td>
-      <td>${escapeHtml(a.Keterangan||'-')}</td>
-      <td><div class="row-actions">
-        <button class="icon-btn-sm wa" data-wa="${escapeHtml(a.ID)}" title="Kirim WA ke orang tua"><i class="fa-brands fa-whatsapp"></i></button>
-        <button class="icon-btn-sm" data-edit="absensi" data-id="${escapeHtml(a.ID)}"><i class="fa-solid fa-pen"></i></button>
-        <button class="icon-btn-sm danger" data-del="absensi" data-id="${escapeHtml(a.ID)}"><i class="fa-solid fa-trash"></i></button>
-      </div></td></tr>`).join('');
-}
-['#filterTglAbsensi','#filterKelasAbsensi','#filterStatusAbsensi'].forEach(sel => $(sel).addEventListener('change', renderAbsensi));
-
-/* ---------------- PELANGGARAN ---------------- */
-function renderPelanggaran(searchQuery){
-  const kelas = $('#filterKelasPelanggaran').value;
-  const bulan = $('#filterBulanPelanggaran').value; // yyyy-mm
-  let rows = STATE.pelanggaran.filter(p => (!kelas || p.Kelas===kelas) && (!bulan || (p.Tanggal||'').startsWith(bulan)));
-  if (searchQuery) rows = rows.filter(p => (p.Nama||'').toLowerCase().includes(searchQuery) || (p.JenisPelanggaran||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  const tbody = $('#tablePelanggaran tbody');
-  const emptyState = $('#page-pelanggaran .empty-state');
-  if (!rows.length){ tbody.innerHTML=''; emptyState.style.display='block'; return; }
-  emptyState.style.display='none';
-  tbody.innerHTML = rows.map(p => `<tr>
-      <td>${fmtDate(p.Tanggal)}</td><td>${escapeHtml(p.Nama||'-')}</td><td>${escapeHtml(p.Kelas||'-')}</td>
-      <td>${escapeHtml(p.JenisPelanggaran||'-')}</td>
-      <td><span class="badge badge--danger">${escapeHtml(p.Poin||0)} poin</span></td>
-      <td>${escapeHtml(p.Penanganan||'-')}</td>
-      <td><div class="row-actions">
-        <button class="icon-btn-sm" data-edit="pelanggaran" data-id="${escapeHtml(p.ID)}"><i class="fa-solid fa-pen"></i></button>
-        <button class="icon-btn-sm danger" data-del="pelanggaran" data-id="${escapeHtml(p.ID)}"><i class="fa-solid fa-trash"></i></button>
-      </div></td></tr>`).join('');
-}
-['#filterKelasPelanggaran','#filterBulanPelanggaran'].forEach(sel => $(sel).addEventListener('change', renderPelanggaran));
-
-/* ---------------- KONSELING (card list) ---------------- */
-function renderKonseling(searchQuery){
-  const kelas = $('#filterKelasKonseling').value;
-  let rows = STATE.konseling.filter(k => !kelas || k.Kelas===kelas);
-  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery) || (k.Topik||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  const list = $('#listKonseling');
-  $('#emptyKonseling').style.display = rows.length ? 'none' : 'block';
-  list.innerHTML = rows.map(k => `
-    <div class="entry-card">
-      <div class="entry-card-head">
-        <div class="entry-avatar-row">
-          <span class="avatar-ring" style="background:${colorFromString(k.Nama)}">${escapeHtml(initials(k.Nama))}</span>
-          <div><div class="entry-name">${escapeHtml(k.Nama||'-')}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')} · ${escapeHtml(k.Topik||'Konseling')}</div></div>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn-sm" data-edit="konseling" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-pen"></i></button>
-          <button class="icon-btn-sm danger" data-del="konseling" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-trash"></i></button>
-        </div>
-      </div>
-      <div class="entry-body">
-        <p><b>Masalah:</b> ${escapeHtml(k.Masalah||'-')}</p>
-        <p><b>Hasil:</b> ${escapeHtml(k.HasilKonseling||'-')}</p>
-        <p><b>Tindak lanjut:</b> ${escapeHtml(k.TindakLanjut||'-')}</p>
-      </div>
-      <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Konselor||'')}</span></div>
-    </div>`).join('');
-}
-$('#filterKelasKonseling').addEventListener('change', renderKonseling);
-
-/* ---------------- KOLABORASI (card list) ---------------- */
-function renderKolaborasi(searchQuery){
-  const jenis = $('#filterJenisKolaborasi').value;
-  let rows = STATE.kolaborasi.filter(k => !jenis || k.Jenis===jenis);
-  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery) || (k.Jenis||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  const list = $('#listKolaborasi');
-  $('#emptyKolaborasi').style.display = rows.length ? 'none' : 'block';
-  list.innerHTML = rows.map(k => `
-    <div class="entry-card">
-      <div class="entry-card-head">
-        <div class="entry-avatar-row">
-          <span class="avatar-ring" style="background:${colorFromString(k.Nama)}">${escapeHtml(initials(k.Nama))}</span>
-          <div><div class="entry-name">${escapeHtml(k.Nama||'-')}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')}</div></div>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn-sm" data-edit="kolaborasi" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-pen"></i></button>
-          <button class="icon-btn-sm danger" data-del="kolaborasi" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-trash"></i></button>
-        </div>
-      </div>
-      <div class="entry-body">
-        <p><span class="badge badge--info">${escapeHtml(k.Jenis||'-')}</span></p>
-        <p style="margin-top:8px"><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
-        <p><b>Hasil:</b> ${escapeHtml(k.Hasil||'-')}</p>
-      </div>
-      <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Petugas||'')}</span></div>
-    </div>`).join('');
-}
-$('#filterJenisKolaborasi').addEventListener('change', renderKolaborasi);
-
-/* ---------------- 7 KEBIASAAN ANAK INDONESIA HEBAT (card list) ---------------- */
-function habitDone(v){ return v && String(v).trim() && String(v).trim().toLowerCase() !== 'tidak'; }
-function renderKebiasaan(searchQuery){
-  const kelas = $('#filterKelasKebiasaan').value;
-  const tgl = $('#filterTglKebiasaan').value;
-  let rows = STATE.kebiasaan.filter(k => (!kelas || k.Kelas===kelas) && (!tgl || k.Tanggal===tgl));
-  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  const list = $('#listKebiasaan');
-  $('#emptyKebiasaan').style.display = rows.length ? 'none' : 'block';
-
-  const habitDefs = [
-    { key:'BangunPagiPukul', label:'Bangun Pagi', icon:'fa-sun', display: v => v || '-' },
-    { key:'IbadahSholat', label:'Beribadah', icon:'fa-mosque', display: (v,k) => [v, habitDone(k.IbadahDhuha)?'Dhuha':'', k.IbadahTadarus?('Tadarus: '+k.IbadahTadarus):''].filter(Boolean).join(', ') || '-' },
-    { key:'OlahragaJenis', label:'Berolahraga', icon:'fa-person-running', display: (v,k) => v ? `${v}${k.OlahragaDurasi?` (${k.OlahragaDurasi} menit)`:''}` : '-' },
-    { key:'BelajarMapel', label:'Gemar Belajar', icon:'fa-book', display: v => v || '-' },
-    { key:'MakanMenu', label:'Makan Sehat & Bergizi', icon:'fa-utensils', display: v => v || '-' },
-    { key:'BermasyarakatKegiatan', label:'Bermasyarakat', icon:'fa-people-group', display: v => v || '-' },
-    { key:'IstirahatPukul', label:'Istirahat Cukup', icon:'fa-bed', display: v => v || '-' }
-  ];
-
-  list.innerHTML = rows.map(k => `
-    <div class="entry-card habit-card">
-      <div class="entry-card-head">
-        <div class="entry-avatar-row">
-          <span class="avatar-ring" style="background:${colorFromString(k.Nama)}">${escapeHtml(initials(k.Nama))}</span>
-          <div><div class="entry-name">${escapeHtml(k.Nama||'-')}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')} · ${fmtDate(k.Tanggal)}</div></div>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn-sm" data-print-habit="${escapeHtml(k.ID)}" title="Cetak formulir"><i class="fa-solid fa-print"></i></button>
-          <button class="icon-btn-sm" data-edit="kebiasaan" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-pen"></i></button>
-          <button class="icon-btn-sm danger" data-del="kebiasaan" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-trash"></i></button>
-        </div>
-      </div>
-      <div class="habit-grid">
-        ${habitDefs.map(h => `<div class="habit-item"><i class="fa-solid ${h.icon}"></i><div><span class="habit-label">${h.label}</span><span class="habit-value">${escapeHtml(h.display(k[h.key], k))}</span></div></div>`).join('')}
-      </div>
-      <div class="entry-foot">
-        <span class="entry-sub">${habitDone(k.ParafOrtu)?'<i class="fa-solid fa-check" style="color:var(--success)"></i> Paraf Ortu':'<i class="fa-regular fa-circle" style="color:var(--ink-soft)"></i> Paraf Ortu'} &nbsp;&nbsp; ${habitDone(k.ParafGuru)?'<i class="fa-solid fa-check" style="color:var(--success)"></i> Paraf Guru':'<i class="fa-regular fa-circle" style="color:var(--ink-soft)"></i> Paraf Guru'}</span>
-      </div>
-      ${k.CatatanGuru ? `<div class="habit-note"><b>Catatan Guru:</b> ${escapeHtml(k.CatatanGuru)}</div>` : ''}
-    </div>`).join('');
-}
-$('#filterKelasKebiasaan').addEventListener('change', () => renderKebiasaan());
-$('#filterTglKebiasaan').addEventListener('change', () => renderKebiasaan());
-
-/* Cetak satu formulir kebiasaan meniru layout kertas "7 Kebiasaan Anak Indonesia Hebat" */
-function printKebiasaanForm(id){
-  const k = STATE.kebiasaan.find(o => String(o.ID)===String(id));
-  if (!k) return;
-  const row = (label, value) => `<tr><td class="hb-k">${escapeHtml(label)}</td><td class="hb-v">${escapeHtml(value) || '-'}</td></tr>`;
-  const html = `
-    <h2>7 Kebiasaan Anak Indonesia Hebat</h2>
-    <div class="report-head-line"><span>Nama: ${escapeHtml(k.Nama||'-')} &nbsp;|&nbsp; Kelas: ${escapeHtml(k.Kelas||'-')}</span><span>Hari, tanggal: ${fmtDate(k.Tanggal)}</span></div>
-    <table class="hb-table">
-      <tbody>
-        ${row('1. Bangun Pagi', 'Pukul: ' + (k.BangunPagiPukul||'-'))}
-        ${row('2. Beribadah', (k.IbadahSholat||'-') + (habitDone(k.IbadahDhuha)?', Dhuha':'') + (k.IbadahTadarus?', Tadarus/Murajaah: '+k.IbadahTadarus:'') + (k.IbadahLainnya?', Lainnya: '+k.IbadahLainnya:''))}
-        ${row('3. Berolahraga', 'Jenis: ' + (k.OlahragaJenis||'-') + ' — Durasi: ' + (k.OlahragaDurasi||'-'))}
-        ${row('4. Gemar Belajar', 'Mapel: ' + (k.BelajarMapel||'-'))}
-        ${row('5. Makan Sehat dan Bergizi', 'Menu: ' + (k.MakanMenu||'-'))}
-        ${row('6. Bermasyarakat', 'Kegiatan: ' + (k.BermasyarakatKegiatan||'-'))}
-        ${row('7. Istirahat Cukup', 'Pukul: ' + (k.IstirahatPukul||'-'))}
-      </tbody>
-    </table>
-    <table class="hb-table" style="margin-top:14px">
-      <tbody>
-        <tr>
-          <td class="hb-k" style="width:20%">Paraf Ortu</td>
-          <td class="hb-k" style="width:20%">Paraf Guru</td>
-          <td class="hb-k">Catatan Guru</td>
-        </tr>
-        <tr style="height:70px">
-          <td>${habitDone(k.ParafOrtu)?'✓':''}</td>
-          <td>${habitDone(k.ParafGuru)?'✓':''}</td>
-          <td>${escapeHtml(k.CatatanGuru||'')}</td>
-        </tr>
-      </tbody>
-    </table>`;
-  $('#reportPreview').innerHTML = html;
-  $('#reportPreviewCard').style.display = 'block';
-  goToPage('laporan');
-  $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
-  setTimeout(() => window.print(), 400);
-}
-
-/* ---------------- ROW ACTION DELEGATION (edit/delete) ---------------- */
-document.addEventListener('click', async (e) => {
-  const editBtn = e.target.closest('[data-edit]');
-  const delBtn = e.target.closest('[data-del]');
-  const printHabitBtn = e.target.closest('[data-print-habit]');
-  const waBtn = e.target.closest('[data-wa]');
-  if (waBtn){ openWaForAbsen(waBtn.dataset.wa); return; }
-  if (printHabitBtn){ printKebiasaanForm(printHabitBtn.dataset.printHabit); return; }
-  if (editBtn) openForm(editBtn.dataset.edit, editBtn.dataset.id);
-  if (delBtn){
-    const type = delBtn.dataset.del, id = delBtn.dataset.id;
-    if (!confirm('Yakin ingin menghapus data ini? Tindakan ini tidak dapat dibatalkan.')) return;
-    showLoading(true);
-    try{
-      await adapter.delete(type, id);
-      STATE[type] = STATE[type].filter(o => String(o.ID) !== String(id));
-      renderCurrentPage(); renderDashboard(); populateClassFilters();
-      toast('Data berhasil dihapus.', 'success');
-    }catch(err){ toast(err.message, 'error'); }
-    finally{ showLoading(false); }
+function findRowIndexById(sheet, headers, id){
+  var idCol = headers.indexOf('ID');
+  if (idCol === -1) throw new Error('Kolom ID tidak ditemukan di sheet.');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  var ids = sheet.getRange(2, idCol+1, lastRow-1, 1).getValues();
+  for (var i=0;i<ids.length;i++){
+    if (String(ids[i][0]) === String(id)) return i+2;
   }
-});
-
-/* ---------------- FORM CONFIG ---------------- */
-function siswaSelectOptions(selectedId){
-  return STATE.siswa.map(s => `<option value="${s.ID}" ${String(s.ID)===String(selectedId)?'selected':''}>${s.Nama} — ${s.Kelas}</option>`).join('');
+  return -1;
 }
 
-const FORM_CONFIG = {
-  siswa: {
-    title: 'Data Siswa',
-    fields: [
-      { key:'NIS', label:'NIS', type:'text', required:true },
-      { key:'Nama', label:'Nama Lengkap', type:'text', required:true },
-      { key:'Kelas', label:'Kelas', type:'text', required:true, placeholder:'contoh: VIII-A' },
-      { key:'JenisKelamin', label:'Jenis Kelamin', type:'select', options:['L','P'] },
-      { key:'TempatTglLahir', label:'Tempat, Tgl Lahir', type:'text' },
-      { key:'NamaOrtu', label:'Nama Orang Tua/Wali', type:'text' },
-      { key:'NoHPOrtu', label:'No. HP Orang Tua', type:'text' },
-      { key:'Alamat', label:'Alamat', type:'textarea', full:true },
-      { key:'Catatan', label:'Catatan Khusus', type:'textarea', full:true }
-    ]
-  },
-  absensi: {
-    title: 'Absensi Siswa',
-    fields: [
-      { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'Status', label:'Status', type:'select', options:['Hadir','Sakit','Izin','Alpa'], required:true },
-      { key:'Keterangan', label:'Keterangan', type:'textarea', full:true }
-    ]
-  },
-  pelanggaran: {
-    title: 'Pelanggaran Siswa',
-    fields: [
-      { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'JenisPelanggaran', label:'Jenis Pelanggaran', type:'select-jenis-pelanggaran', required:true, full:true },
-      { key:'Poin', label:'Poin Pelanggaran', type:'number' },
-      { key:'Keterangan', label:'Keterangan', type:'textarea', full:true },
-      { key:'Penanganan', label:'Penanganan', type:'textarea', full:true }
-    ]
-  },
-  konseling: {
-    title: 'Sesi Konseling',
-    fields: [
-      { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'Topik', label:'Topik', type:'text', required:true },
-      { key:'Konselor', label:'Konselor / Guru BK', type:'text' },
-      { key:'Masalah', label:'Uraian Masalah', type:'textarea', full:true },
-      { key:'HasilKonseling', label:'Hasil Konseling', type:'textarea', full:true },
-      { key:'TindakLanjut', label:'Rencana Tindak Lanjut', type:'textarea', full:true }
-    ]
-  },
-  kolaborasi: {
-    title: 'Kolaborasi (Panggilan Ortu / Home Visit)',
-    fields: [
-      { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'Jenis', label:'Jenis Kegiatan', type:'select', options:['Pemanggilan Orang Tua','Home Visit'], required:true },
-      { key:'Petugas', label:'Petugas BK', type:'text' },
-      { key:'Tujuan', label:'Tujuan Kegiatan', type:'textarea', full:true },
-      { key:'Hasil', label:'Hasil / Kesepakatan', type:'textarea', full:true }
-    ]
-  },
-  kebiasaan: {
-    title: '7 Kebiasaan Anak Indonesia Hebat',
-    fields: [
-      { key:'Tanggal', label:'Hari, Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'BangunPagiPukul', label:'1. Bangun Pagi — Pukul', type:'text', placeholder:'contoh: 05.00' },
-      { key:'IbadahSholat', label:'2. Beribadah — Sholat', type:'checkbox-group', options:['Subuh','Duhur','Ashar','Maghrib',"Isya'"], full:true },
-      { key:'IbadahDhuha', label:'Sholat Dhuha', type:'checkbox' },
-      { key:'IbadahTadarus', label:'Tadarus / Murajaah', type:'text', placeholder:'contoh: Juz 5 / Surah Al-Kahfi' },
-      { key:'IbadahLainnya', label:'Ibadah Lainnya', type:'text', full:true },
-      { key:'OlahragaJenis', label:'3. Berolahraga — Jenis', type:'text' },
-      { key:'OlahragaDurasi', label:'Durasi (menit)', type:'text' },
-      { key:'BelajarMapel', label:'4. Gemar Belajar — Mapel', type:'text', full:true },
-      { key:'MakanMenu', label:'5. Makan Sehat dan Bergizi — Menu', type:'textarea', full:true },
-      { key:'BermasyarakatKegiatan', label:'6. Bermasyarakat — Kegiatan', type:'textarea', full:true },
-      { key:'IstirahatPukul', label:'7. Istirahat Cukup — Pukul', type:'text' },
-      { key:'ParafOrtu', label:'Paraf Orang Tua (sudah diperiksa)', type:'checkbox' },
-      { key:'ParafGuru', label:'Paraf Guru (sudah diperiksa)', type:'checkbox' },
-      { key:'CatatanGuru', label:'Catatan Guru', type:'textarea', full:true }
-    ]
+function createRow(type, data){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  if (!data.ID){
+    data.ID = (ID_PREFIX[type] || 'ID') + '-' + Date.now().toString(36).toUpperCase();
   }
-};
-
-/* ---------------- MODAL FORM ---------------- */
-function openForm(type, id, prefill){
-  const cfg = FORM_CONFIG[type];
-  const existing = id ? STATE[type].find(o => String(o.ID)===String(id)) : null;
-  $('#modalTitle').textContent = (existing ? 'Edit ' : 'Tambah ') + cfg.title;
-
-  const fieldsHtml = cfg.fields.map(f => {
-    const val = existing ? (existing[f.key] ?? '')
-      : (prefill && prefill[f.key] !== undefined ? prefill[f.key]
-      : (typeof f.default==='function' ? f.default() : ''));
-    const wrapClass = 'field' + (f.full ? ' full' : '');
-    if (f.type === 'select-jenis-pelanggaran'){
-      const master = (STATE.masterPelanggaran||[]).slice().sort((a,b)=>(a.JenisPelanggaran||'').localeCompare(b.JenisPelanggaran||''));
-      const matched = master.find(m => m.JenisPelanggaran === val);
-      const isCustom = !!val && !matched;
-      return `<div class="${wrapClass}"><label>${f.label}</label>
-        <div class="jenis-pelanggaran-picker">
-          <select class="jenis-pelanggaran-select" ${master.length ? '' : 'disabled'}>
-            <option value="">${master.length ? 'Pilih jenis pelanggaran...' : 'Belum ada Template Pelanggaran'}</option>
-            ${master.map(m => `<option value="${escapeHtml(m.JenisPelanggaran)}" data-poin="${escapeHtml(String(m.Poin ?? ''))}" ${m.JenisPelanggaran===val?'selected':''}>${escapeHtml(m.JenisPelanggaran)} (${escapeHtml(String(m.Poin ?? 0))} poin)</option>`).join('')}
-            <option value="__custom__" ${isCustom?'selected':''}>+ Jenis lainnya (ketik manual)</option>
-          </select>
-          <input type="text" class="jenis-pelanggaran-custom${isCustom?'':' hidden'}" placeholder="Ketik jenis pelanggaran lainnya..." value="${isCustom?escapeHtml(val):''}" />
-          <input type="hidden" name="${f.key}" value="${escapeHtml(val||'')}" />
-        </div>
-        <p class="muted" style="margin-top:6px;font-size:11.5px">Daftar bisa diatur lewat tombol "Template Pelanggaran" di halaman Pelanggaran.</p>
-      </div>`;
-    }
-    if (f.type === 'select'){
-      return `<div class="${wrapClass}"><label>${f.label}</label>
-        <select name="${f.key}" ${f.required?'required':''}>
-          <option value="">Pilih...</option>
-          ${f.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}
-        </select></div>`;
-    }
-    if (f.type === 'select-siswa'){
-      const selSiswa = val ? siswaById(val) : null;
-      const displayVal = selSiswa ? `${selSiswa.Nama} — ${selSiswa.Kelas||'-'}` : '';
-      const kelasOpts = uniqueClasses().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-      return `<div class="${wrapClass}"><label>${f.label}</label>
-        <div class="siswa-picker">
-          <div class="siswa-picker-row">
-            <select class="siswa-picker-kelas" title="Filter kelas"><option value="">Semua Kelas</option>${kelasOpts}</select>
-            <input type="text" class="siswa-picker-input" autocomplete="off" placeholder="Ketik nama, NIS, atau kelas siswa..." value="${escapeHtml(displayVal)}" />
-          </div>
-          <input type="hidden" name="${f.key}" value="${escapeHtml(val||'')}" />
-          <div class="siswa-picker-dropdown search-dropdown"></div>
-        </div></div>`;
-    }
-    if (f.type === 'textarea'){
-      return `<div class="${wrapClass}"><label>${f.label}</label><textarea name="${f.key}">${escapeHtml(val||'')}</textarea></div>`;
-    }
-    if (f.type === 'checkbox-group'){
-      const selected = (val||'').split(',').map(s=>s.trim());
-      return `<div class="${wrapClass}"><label>${f.label}</label>
-        <div class="checkbox-group">
-          ${f.options.map(o => `<label class="checkbox-pill"><input type="checkbox" name="${f.key}" value="${o}" ${selected.includes(o)?'checked':''}/> ${o}</label>`).join('')}
-        </div></div>`;
-    }
-    if (f.type === 'checkbox'){
-      const checked = habitDone(val);
-      return `<div class="${wrapClass} field--checkbox"><label class="checkbox-pill"><input type="checkbox" name="${f.key}" value="Ya" ${checked?'checked':''}/> ${f.label}</label></div>`;
-    }
-    return `<div class="${wrapClass}"><label>${f.label}</label><input type="${f.type}" name="${f.key}" value="${escapeHtml(val||'')}" ${f.placeholder?`placeholder="${escapeHtml(f.placeholder)}"`:''} ${f.required?'required':''} /></div>`;
-  }).join('');
-
-  $('#modalBody').innerHTML = `
-    <form id="entityForm">
-      <div class="form-grid">${fieldsHtml}</div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="formCancel">Batal</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Simpan</button>
-      </div>
-    </form>`;
-
-  $('#formCancel').addEventListener('click', closeModal);
-  $('#entityForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const data = {};
-    cfg.fields.forEach(f => {
-      if (f.type === 'checkbox-group'){ data[f.key] = fd.getAll(f.key).join(', '); }
-      else if (f.type === 'checkbox'){ data[f.key] = fd.get(f.key) ? 'Ya' : ''; }
-      else { data[f.key] = fd.get(f.key) || ''; }
-    });
-    if (data.SiswaID !== undefined){
-      const s = siswaById(data.SiswaID);
-      if (s){ data.Nama = s.Nama; data.Kelas = s.Kelas; }
-    }
-    const missingSiswa = cfg.fields.find(f => f.type === 'select-siswa' && f.required && !data[f.key]);
-    if (missingSiswa){ toast(`${missingSiswa.label} wajib dipilih — ketik nama lalu klik salah satu hasil.`, 'error'); return; }
-    const missingJenis = cfg.fields.find(f => f.type === 'select-jenis-pelanggaran' && f.required && !data[f.key]);
-    if (missingJenis){ toast(`${missingJenis.label} wajib dipilih atau diisi.`, 'error'); return; }
-    showLoading(true);
-    try{
-      if (existing){
-        const updated = await adapter.update(type, existing.ID, data);
-        const idx = STATE[type].findIndex(o=>String(o.ID)===String(existing.ID));
-        STATE[type][idx] = { ...existing, ...updated, ...data, ID: existing.ID };
-        toast('Data berhasil diperbarui.', 'success');
-      }else{
-        const created = await adapter.create(type, data);
-        STATE[type].push({ ...data, ...created });
-        toast('Data berhasil disimpan.', 'success');
-      }
-      closeModal();
-      populateClassFilters();
-      renderCurrentPage();
-      renderDashboard();
-    }catch(err){
-      toast(err.message, 'error');
-    }finally{
-      showLoading(false);
-    }
-  });
-
-  openModal();
+  var rowValues = headers.map(function(h){ return (data[h] !== undefined && data[h] !== null) ? data[h] : ''; });
+  sheet.appendRow(rowValues);
+  return data;
 }
 
-function openModal(){ $('#modalBackdrop').classList.add('open'); }
-function closeModal(){ $('#modalBackdrop').classList.remove('open'); }
-
-/* ---------------- ABSEN MASSAL PER KELAS ----------------
-   Fitur tambahan di halaman Absensi: centang beberapa siswa sekaligus (mis. satu
-   kelas masuk semua), pilih satu status, lalu simpan sekaligus. Tidak mengubah
-   tampilan/alur "Catat Absensi" satu-per-satu yang sudah ada — ini murni tombol
-   tambahan di sebelahnya. */
-function openBulkAbsensi(){
-  $('#modalTitle').textContent = 'Absen Massal per Kelas';
-  const today = new Date().toISOString().slice(0,10);
-  const kelasOpts = uniqueClasses().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-
-  $('#modalBody').innerHTML = `
-    <form id="bulkAbsensiForm">
-      <div class="form-grid">
-        <div class="field"><label>Tanggal</label><input type="date" id="bulkTanggal" value="${today}" required /></div>
-        <div class="field"><label>Kelas</label>
-          <select id="bulkKelas" required><option value="">Pilih kelas...</option>${kelasOpts}</select>
-        </div>
-        <div class="field"><label>Status untuk siswa yang dicentang</label>
-          <select id="bulkStatus" required>
-            <option value="">Pilih...</option>
-            <option value="Hadir">Hadir</option>
-            <option value="Sakit">Sakit</option>
-            <option value="Izin">Izin</option>
-            <option value="Alpa">Alpa</option>
-          </select>
-        </div>
-        <div class="field"><label>Keterangan (opsional, berlaku untuk semua yang dicentang)</label>
-          <input type="text" id="bulkKeterangan" placeholder="Contoh: -" />
-        </div>
-      </div>
-      <div class="bulk-list-head">
-        <label class="checkbox-pill"><input type="checkbox" id="bulkCheckAll" /> Pilih Semua</label>
-        <span class="muted" id="bulkCount">Pilih kelas dahulu untuk menampilkan daftar siswa.</span>
-      </div>
-      <div class="bulk-siswa-list" id="bulkSiswaList"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="bulkCancel">Batal</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Simpan Semua</button>
-      </div>
-    </form>`;
-
-  function updateBulkCount(){
-    const total = $all('.bulk-siswa-check').length;
-    const checked = $all('.bulk-siswa-check:checked').length;
-    $('#bulkCount').textContent = total ? `${checked} dari ${total} siswa dicentang` : 'Pilih kelas dahulu untuk menampilkan daftar siswa.';
-  }
-  function renderBulkList(kelas){
-    const list = $('#bulkSiswaList');
-    const siswaKelas = STATE.siswa.filter(s => s.Kelas === kelas).sort((a,b)=>(a.Nama||'').localeCompare(b.Nama||''));
-    if (!siswaKelas.length){
-      list.innerHTML = `<p class="muted">Tidak ada data siswa untuk kelas ini.</p>`;
-      $('#bulkCheckAll').checked = false;
-      updateBulkCount();
-      return;
-    }
-    list.innerHTML = siswaKelas.map(s => `
-      <label class="checkbox-pill bulk-item">
-        <input type="checkbox" class="bulk-siswa-check" value="${escapeHtml(s.ID)}" checked />
-        <span class="avatar-ring" style="width:24px;height:24px;font-size:9.5px;background:${colorFromString(s.Nama)}">${escapeHtml(initials(s.Nama))}</span>
-        <span>${escapeHtml(s.Nama)} <span class="muted">· NIS ${escapeHtml(s.NIS||'-')}</span></span>
-      </label>`).join('');
-    $('#bulkCheckAll').checked = true;
-    updateBulkCount();
-  }
-
-  $('#bulkKelas').addEventListener('change', e => renderBulkList(e.target.value));
-  $('#bulkCheckAll').addEventListener('change', e => {
-    $all('.bulk-siswa-check').forEach(cb => cb.checked = e.target.checked);
-    updateBulkCount();
+/* Update HANYA mengubah kolom yang dikirim; kolom lain & baris lain tidak tersentuh sama sekali. */
+function updateRow(type, id, data){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var rowIdx = findRowIndexById(sheet, headers, id);
+  if (rowIdx === -1) throw new Error('Data dengan ID ' + id + ' tidak ditemukan.');
+  Object.keys(data).forEach(function(key){
+    var col = headers.indexOf(key);
+    if (col === -1) return; // kolom tidak dikenal, lewati (tidak menambah kolom liar)
+    sheet.getRange(rowIdx, col+1).setValue(data[key]);
   });
-  $('#bulkSiswaList').addEventListener('change', e => {
-    if (e.target.classList.contains('bulk-siswa-check')) updateBulkCount();
-  });
-  $('#bulkCancel').addEventListener('click', closeModal);
+  var current = {};
+  var rowValues = sheet.getRange(rowIdx,1,1,headers.length).getValues()[0];
+  headers.forEach(function(h,i){ current[h] = rowValues[i]; });
+  return current;
+}
 
-  $('#bulkAbsensiForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const tanggal = $('#bulkTanggal').value;
-    const kelas = $('#bulkKelas').value;
-    const status = $('#bulkStatus').value;
-    const keterangan = $('#bulkKeterangan').value || '';
-    if (!tanggal || !kelas || !status){ toast('Tanggal, kelas, dan status wajib diisi.', 'error'); return; }
-    const checkedIds = $all('.bulk-siswa-check:checked').map(cb => cb.value);
-    if (!checkedIds.length){ toast('Centang minimal satu siswa.', 'error'); return; }
+function deleteRow(type, id){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var rowIdx = findRowIndexById(sheet, headers, id);
+  if (rowIdx === -1) throw new Error('Data dengan ID ' + id + ' tidak ditemukan.');
+  sheet.deleteRow(rowIdx);
+}
 
-    showLoading(true);
-    let saved = 0, skipped = 0;
-    try{
-      const rowsToInsert = [];
-      checkedIds.forEach(id => {
-        const already = STATE.absensi.some(a => String(a.SiswaID)===String(id) && a.Tanggal===tanggal);
-        if (already){ skipped++; return; }
-        const s = siswaById(id);
-        rowsToInsert.push({ Tanggal: tanggal, SiswaID: id, Nama: s?.Nama||'', Kelas: s?.Kelas||'', Status: status, Keterangan: keterangan });
+/* Import massal dari Excel/CSV: HANYA menambahkan baris baru.
+   Baris yang matchField-nya (misal NIS/Username) sudah ada di sheet akan
+   DILEWATI, bukan ditimpa — data lama dijamin tidak berubah (password akun
+   guru yang sudah ada tidak akan tertimpa lewat import).
+   Semua baris baru ditulis dalam SATU kali panggilan setValues (bukan appendRow
+   berulang) supaya cepat walau jumlah barisnya banyak. */
+function importBulk(type, rows, matchField){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var matchCol = headers.indexOf(matchField);
+  var existingKeys = {};
+  if (matchCol !== -1){
+    var lastRow = sheet.getLastRow();
+    if (lastRow >= 2){
+      var vals = sheet.getRange(2, matchCol+1, lastRow-1, 1).getValues();
+      vals.forEach(function(v){
+        var k = String(v[0]).trim().toLowerCase();
+        if (k) existingKeys[k] = true;
       });
-      if (rowsToInsert.length){
-        // Satu permintaan untuk semua siswa sekaligus (jauh lebih cepat dibanding satu-satu)
-        const result = await adapter.bulkInsert('absensi', rowsToInsert);
-        const insertedRows = (result && result.rows) || rowsToInsert;
-        STATE.absensi.push(...insertedRows);
-        saved = insertedRows.length;
-      }
-      closeModal();
-      populateClassFilters();
-      renderCurrentPage();
-      renderDashboard();
-      toast(`${saved} siswa dicatat sebagai ${status}${skipped ? `, ${skipped} dilewati (sudah ada catatan absensi tanggal ini)` : ''}.`, 'success');
-    }catch(err){
-      toast(err.message, 'error');
-    }finally{
-      showLoading(false);
     }
-  });
-
-  openModal();
-}
-$('#btnBulkAbsensi').addEventListener('click', openBulkAbsensi);
-$('#modalClose').addEventListener('click', closeModal);
-$('#modalBackdrop').addEventListener('click', e => { if (e.target.id==='modalBackdrop') closeModal(); });
-
-$('#btnAddSiswa').addEventListener('click', () => openForm('siswa'));
-$('#btnAddAbsensi').addEventListener('click', () => openForm('absensi'));
-$('#btnAddPelanggaran').addEventListener('click', () => openForm('pelanggaran'));
-$('#btnMasterPelanggaran').addEventListener('click', () => openMasterPelanggaran());
-
-/* ---------------- TEMPLATE PELANGGARAN (kelola Jenis Pelanggaran & Poin) ----------------
-   Daftar baku Jenis Pelanggaran + Poin yang dipakai sebagai pilihan dropdown saat
-   mencatat pelanggaran, supaya konsisten antar guru (tidak ketik bebas beda-beda
-   istilah). Sekolah bisa tambah/ubah/hapus daftar ini kapan saja lewat menu ini —
-   mengubah daftar TIDAK mengubah data pelanggaran siswa yang sudah tercatat
-   sebelumnya (karena JenisPelanggaran & Poin disimpan sebagai teks/angka biasa
-   di baris pelanggaran masing-masing siswa, bukan referensi/link ke baris ini). */
-function openMasterPelanggaran(){
-  $('#modalTitle').textContent = 'Template Pelanggaran';
-  let editingId = null;
-
-  $('#modalBody').innerHTML = `
-    <p class="muted" style="margin:0 0 14px">Daftar Jenis Pelanggaran &amp; Poin baku ini akan muncul sebagai pilihan dropdown saat mencatat pelanggaran siswa. Mengubah daftar di sini tidak mengubah data pelanggaran yang sudah pernah dicatat.</p>
-    <form id="masterPelanggaranForm">
-      <div class="form-grid">
-        <div class="field full"><label>Jenis Pelanggaran</label>
-          <input type="text" id="mplJenis" placeholder="Contoh: Terlambat masuk sekolah" required />
-        </div>
-        <div class="field"><label>Poin</label>
-          <input type="number" id="mplPoin" min="0" value="5" required />
-        </div>
-        <div class="field"><label>Kategori</label>
-          <select id="mplKategori">
-            <option value="Ringan">Ringan</option>
-            <option value="Sedang">Sedang</option>
-            <option value="Berat">Berat</option>
-            <option value="Lainnya">Lainnya</option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:18px">
-        <button type="submit" class="btn btn-primary" id="mplSubmitBtn"><i class="fa-solid fa-plus"></i> Tambah ke Template</button>
-        <button type="button" class="btn btn-ghost hidden" id="mplCancelEditBtn">Batal Edit</button>
-      </div>
-    </form>
-    <div class="bulk-siswa-list" id="mplList" style="max-height:280px"></div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" id="mplCloseBtn">Tutup</button>
-    </div>`;
-
-  function renderList(){
-    const list = $('#mplList');
-    const rows = STATE.masterPelanggaran.slice().sort((a,b) => (a.JenisPelanggaran||'').localeCompare(b.JenisPelanggaran||''));
-    if (!rows.length){
-      list.innerHTML = `<p class="muted" style="padding:8px">Belum ada Template Pelanggaran. Tambahkan lewat form di atas.</p>`;
+  }
+  var added = 0, skipped = 0, skippedRows = [];
+  var matrix = [];
+  rows.forEach(function(r){
+    var keyVal = matchCol !== -1 ? String(r[matchField] || '').trim().toLowerCase() : '';
+    if (matchCol !== -1 && keyVal && existingKeys[keyVal]){
+      skipped++; skippedRows.push(r[matchField]);
       return;
     }
-    list.innerHTML = rows.map(m => `
-      <div class="bulk-item mpl-item">
-        <span class="mpl-info"><b>${escapeHtml(m.JenisPelanggaran||'-')}</b> <span class="muted">· ${escapeHtml(String(m.Poin ?? 0))} poin · ${escapeHtml(m.Kategori||'-')}</span></span>
-        <span class="search-dd-actions">
-          <button type="button" class="icon-btn-sm" data-mpl-edit="${escapeHtml(m.ID)}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-          <button type="button" class="icon-btn-sm danger" data-mpl-del="${escapeHtml(m.ID)}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
-        </span>
-      </div>`).join('');
-  }
-  renderList();
-
-  $('#mplList').addEventListener('click', async (e) => {
-    const editBtn = e.target.closest('[data-mpl-edit]');
-    const delBtn = e.target.closest('[data-mpl-del]');
-    if (editBtn){
-      const m = STATE.masterPelanggaran.find(o => String(o.ID)===String(editBtn.dataset.mplEdit));
-      if (!m) return;
-      editingId = m.ID;
-      $('#mplJenis').value = m.JenisPelanggaran || '';
-      $('#mplPoin').value = m.Poin ?? 5;
-      $('#mplKategori').value = m.Kategori || 'Ringan';
-      $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> Update Template';
-      $('#mplCancelEditBtn').classList.remove('hidden');
-      $('#mplJenis').focus();
-      return;
-    }
-    if (delBtn){
-      if (!confirm('Hapus jenis pelanggaran ini dari Template? Data pelanggaran siswa yang sudah tercatat sebelumnya tidak akan terhapus.')) return;
-      const id = delBtn.dataset.mplDel;
-      try{
-        await adapter.delete('masterPelanggaran', id);
-        STATE.masterPelanggaran = STATE.masterPelanggaran.filter(o => String(o.ID)!==String(id));
-        renderList();
-        toast('Template pelanggaran dihapus.', 'success');
-      }catch(err){
-        toast(err.message, 'error');
-      }
-    }
+    if (!r.ID){ r.ID = (ID_PREFIX[type] || 'ID') + '-' + Date.now().toString(36).toUpperCase() + '-' + added; }
+    matrix.push(headers.map(function(h){ return (r[h] !== undefined && r[h] !== null) ? r[h] : ''; }));
+    if (matchCol !== -1 && keyVal) existingKeys[keyVal] = true;
+    added++;
   });
+  if (matrix.length){
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, matrix.length, headers.length).setValues(matrix);
+  }
+  return { added: added, skipped: skipped, skippedKeys: skippedRows };
+}
 
-  $('#mplCancelEditBtn').addEventListener('click', () => {
-    editingId = null;
-    $('#masterPelanggaranForm').reset();
-    $('#mplPoin').value = 5;
-    $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah ke Template';
-    $('#mplCancelEditBtn').classList.add('hidden');
+/* Simpan banyak baris baru sekaligus dalam SATU kali panggilan setValues
+   (dipakai fitur Absen Massal). Jauh lebih cepat dibanding memanggil
+   createRow() berulang, karena hanya ada satu kali komunikasi ke Google Sheets
+   untuk menulis semua baris, bukan satu per siswa. */
+function bulkInsert(type, rows){
+  var sheet = getSheet(type);
+  var headers = getHeaders(sheet);
+  var matrix = rows.map(function(r, i){
+    if (!r.ID){ r.ID = (ID_PREFIX[type] || 'ID') + '-' + Date.now().toString(36).toUpperCase() + '-' + i; }
+    return headers.map(function(h){ return (r[h] !== undefined && r[h] !== null) ? r[h] : ''; });
   });
+  if (matrix.length){
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, matrix.length, headers.length).setValues(matrix);
+  }
+  return { inserted: matrix.length, rows: rows };
+}
 
-  $('#masterPelanggaranForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const jenis = $('#mplJenis').value.trim();
-    const poin = Number($('#mplPoin').value || 0);
-    const kategori = $('#mplKategori').value;
-    if (!jenis){ toast('Jenis Pelanggaran wajib diisi.', 'error'); return; }
-    const btn = $('#mplSubmitBtn');
-    const originalLabel = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
-    try{
-      const data = { JenisPelanggaran: jenis, Poin: poin, Kategori: kategori };
-      if (editingId){
-        const updated = await adapter.update('masterPelanggaran', editingId, data);
-        const idx = STATE.masterPelanggaran.findIndex(o => String(o.ID)===String(editingId));
-        if (idx > -1) STATE.masterPelanggaran[idx] = { ...STATE.masterPelanggaran[idx], ...updated, ...data, ID: editingId };
-        toast('Template pelanggaran diperbarui.', 'success');
-      } else {
-        const created = await adapter.create('masterPelanggaran', data);
-        STATE.masterPelanggaran.push({ ...data, ...created });
-        toast('Ditambahkan ke Template Pelanggaran.', 'success');
-      }
-      editingId = null;
-      $('#masterPelanggaranForm').reset();
-      $('#mplPoin').value = 5;
-      $('#mplSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah ke Template';
-      $('#mplCancelEditBtn').classList.add('hidden');
-      renderList();
-    }catch(err){
-      toast(err.message, 'error');
-    }finally{
-      btn.disabled = false;
-    }
+/* ---------------- PENGATURAN (Profil Sekolah, dll) ----------------
+   Disimpan sebagai sheet key-value sederhana (Key | Value) di tab "Pengaturan",
+   supaya:
+   - Bisa dibaca/ditulis lewat aksi generik getSettings/saveSettings tanpa
+     perlu tahu ID baris seperti data siswa/absensi.
+   - Mudah ditambah key baru di masa depan (mis. alamat sekolah, nama kepala
+     sekolah) tanpa perlu ubah struktur/migrasi kolom.
+   Sel di Google Sheets punya batas ±50.000 karakter, jadi logo dikompres &
+   diperkecil dulu di sisi frontend sebelum dikirim ke sini. */
+function getSettingsSheet(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SETTINGS_SHEET_NAME);
+  if (!sheet){
+    sheet = ss.insertSheet(SETTINGS_SHEET_NAME);
+    sheet.getRange(1,1,1,SETTINGS_HEADERS.length).setValues([SETTINGS_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readSettingsMap(){
+  var sheet = getSettingsSheet();
+  var lastRow = sheet.getLastRow();
+  var out = {};
+  if (lastRow < 2) return out;
+  var values = sheet.getRange(2,1,lastRow-1,2).getValues();
+  values.forEach(function(row){
+    var key = String(row[0] || '').trim();
+    if (key) out[key] = row[1];
   });
-
-  $('#mplCloseBtn').addEventListener('click', closeModal);
-  openModal();
-}
-$('#btnAddKonseling').addEventListener('click', () => openForm('konseling'));
-$('#btnAddKolaborasi').addEventListener('click', () => openForm('kolaborasi'));
-$('#btnAddKebiasaan').addEventListener('click', () => openForm('kebiasaan'));
-
-/* ---------------- LAPORAN / CETAK PDF ---------------- */
-const REPORT_COLUMNS = {
-  siswa: ['NIS','Nama','Kelas','JenisKelamin','NamaOrtu','NoHPOrtu'],
-  absensi: ['Tanggal','Nama','Kelas','Status','Keterangan'],
-  pelanggaran: ['Tanggal','Nama','Kelas','JenisPelanggaran','Poin','Penanganan'],
-  konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut'],
-  kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
-  kebiasaan: ['Tanggal','Nama','Kelas','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul']
-};
-const REPORT_TITLES = {
-  siswa:'Data Siswa', absensi:'Rekap Absensi Siswa', pelanggaran:'Rekap Pelanggaran Siswa',
-  konseling:'Rekap Sesi Konseling', kolaborasi:'Rekap Kolaborasi (Panggilan Ortu / Home Visit)',
-  kebiasaan:'Rekap 7 Kebiasaan Anak Indonesia Hebat'
-};
-
-$('#reportPeriode').addEventListener('change', () => {
-  const val = $('#reportPeriode').value;
-  $('#reportTanggalField').classList.toggle('hidden', val !== 'harian');
-  $('#reportBulanField').classList.toggle('hidden', val !== 'bulanan');
-  $('#reportSemesterField').classList.toggle('hidden', val !== 'semester');
-  $('#reportTahunAjaranField').classList.toggle('hidden', val !== 'semester');
-  if (val === 'semester' && !$('#reportTahunAjaran').value.trim()){
-    $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
-  }
-});
-$('#reportType').addEventListener('change', () => {
-  const isIndividu = $('#reportType').value === 'individu';
-  $('#reportKelasField').classList.toggle('hidden', isIndividu);
-  $('#reportSiswaField').classList.toggle('hidden', !isIndividu);
-  $('#reportRekapKelasWrap').style.display = isIndividu ? 'none' : '';
-});
-(function initReportDefaults(){
-  const today = new Date();
-  $('#reportTanggal').value = today.toISOString().slice(0,10);
-  $('#reportBulan').value = today.toISOString().slice(0,7);
-  $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
-})();
-
-/* Ubah "2025/2026" (atau "2025-2026", "2025 2026") jadi { y1:2025, y2:2026 }.
-   Kalau formatnya tidak dikenali, pakai tahun berjalan sebagai fallback supaya
-   fitur semester tetap bisa dipakai walau Tahun Pelajaran di Pengaturan belum diisi. */
-function parseTahunAjaran(str){
-  const m = String(str || '').match(/(\d{4}).*?(\d{4})/);
-  if (m) return { y1: parseInt(m[1],10), y2: parseInt(m[2],10) };
-  const y = new Date().getFullYear();
-  return { y1: y, y2: y+1 };
-}
-function monthLabel(ym){
-  if (!ym) return '-';
-  const [y,m] = ym.split('-');
-  return new Date(y, m-1, 1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});
-}
-/* Semester Ganjil = Juli–Desember (tahun pertama tahun pelajaran);
-   Semester Genap = Januari–Juni (tahun kedua tahun pelajaran) — konvensi umum sekolah di Indonesia. */
-function semesterMonthRange(){
-  const { y1, y2 } = parseTahunAjaran($('#reportTahunAjaran').value || SCHOOL_YEAR);
-  const isGenap = $('#reportSemester').value === 'genap';
-  return isGenap ? { startYM: `${y2}-01`, endYM: `${y2}-06` } : { startYM: `${y1}-07`, endYM: `${y1}-12` };
+  return out;
 }
 
-function filterByPeriode(rows, type){
-  const periode = $('#reportPeriode').value;
-  if (!periode) return rows;
-  if (!('Tanggal' in (rows[0]||{})) && !REPORT_COLUMNS[type].includes('Tanggal')) return rows;
-  if (periode === 'harian'){
-    const tgl = $('#reportTanggal').value;
-    if (!tgl) return rows;
-    return rows.filter(r => (r.Tanggal||'').slice(0,10) === tgl);
-  }
-  if (periode === 'bulanan'){
-    const bln = $('#reportBulan').value; // yyyy-mm
-    if (!bln) return rows;
-    return rows.filter(r => (r.Tanggal||'').slice(0,7) === bln);
-  }
-  if (periode === 'semester'){
-    const { startYM, endYM } = semesterMonthRange();
-    return rows.filter(r => {
-      const ym = (r.Tanggal||'').slice(0,7);
-      return ym && ym >= startYM && ym <= endYM;
+/* Update HANYA key yang dikirim (mis. cuma NamaSekolah), key lain di sheet
+   Pengaturan tidak tersentuh — sama seperti prinsip updateRow() di atas. */
+function saveSettingsMap(dataObj){
+  var sheet = getSettingsSheet();
+  var lastRow = sheet.getLastRow();
+  var rowIndexByKey = {};
+  if (lastRow >= 2){
+    var keys = sheet.getRange(2,1,lastRow-1,1).getValues();
+    keys.forEach(function(k, i){
+      var key = String(k[0] || '').trim();
+      if (key) rowIndexByKey[key] = i + 2;
     });
   }
-  return rows;
-}
-function periodeLabel(){
-  const periode = $('#reportPeriode').value;
-  if (periode === 'harian'){
-    const tgl = $('#reportTanggal').value;
-    return tgl ? `Harian — ${fmtDate(tgl)}` : 'Harian';
-  }
-  if (periode === 'bulanan'){
-    const bln = $('#reportBulan').value;
-    if (!bln) return 'Bulanan';
-    const [y,m] = bln.split('-');
-    return `Bulanan — ${new Date(y, m-1, 1).toLocaleDateString('id-ID',{month:'long',year:'numeric'})}`;
-  }
-  if (periode === 'semester'){
-    const { startYM, endYM } = semesterMonthRange();
-    const semLabel = $('#reportSemester').value === 'genap' ? 'Genap' : 'Ganjil';
-    const taj = ($('#reportTahunAjaran').value || SCHOOL_YEAR || '-').trim() || '-';
-    return `Semester ${semLabel} — Tahun Pelajaran ${taj} (${monthLabel(startYM)} s.d. ${monthLabel(endYM)})`;
-  }
-  return 'Semua Tanggal';
-}
-
-$('#btnGenerateReport').addEventListener('click', () => {
-  const type = $('#reportType').value;
-
-  if (type === 'individu'){
-    const siswaId = $('#reportSiswa').value;
-    if (!siswaId){ toast('Pilih siswa terlebih dahulu.', 'error'); return; }
-    const s = siswaById(siswaId);
-    if (!s){ toast('Data siswa tidak ditemukan.', 'error'); return; }
-
-    const mine = (type) => filterByPeriode((STATE[type]||[]).filter(r => String(r.SiswaID) === String(siswaId)), type)
-      .slice().sort((a,b)=> new Date(a.Tanggal) - new Date(b.Tanggal));
-    const absensi = mine('absensi');
-    const pelanggaran = mine('pelanggaran');
-    const konseling = mine('konseling');
-    const kolaborasi = mine('kolaborasi');
-    const kebiasaan = mine('kebiasaan');
-    const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
-
-    const section = (title, cols, rows, emptyMsg) => `
-      <h3 style="margin-top:22px">${title}</h3>
-      <table>
-        <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(r[c] ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">${emptyMsg}</td></tr>`}
-        </tbody>
-      </table>`;
-
-    const html = `
-      <h2>Laporan Individu Siswa</h2>
-      <div class="report-head-line"><span>Periode: ${periodeLabel()}</span><span>Dicetak: ${today}</span></div>
-      <div class="report-summary">
-        <div class="report-summary-item"><span class="label">Nama</span><span class="value" style="font-size:14px">${escapeHtml(s.Nama)}</span></div>
-        <div class="report-summary-item"><span class="label">NIS</span><span class="value" style="font-size:14px">${escapeHtml(s.NIS||'-')}</span></div>
-        <div class="report-summary-item"><span class="label">Kelas</span><span class="value" style="font-size:14px">${escapeHtml(s.Kelas||'-')}</span></div>
-        <div class="report-summary-item"><span class="label">Jenis Kelamin</span><span class="value" style="font-size:14px">${escapeHtml(s.JenisKelamin||'-')}</span></div>
-        <div class="report-summary-item"><span class="label">Orang Tua/Wali</span><span class="value" style="font-size:14px">${escapeHtml(s.NamaOrtu||'-')}</span></div>
-        <div class="report-summary-item"><span class="label">No. HP Ortu</span><span class="value" style="font-size:14px">${escapeHtml(s.NoHPOrtu||'-')}</span></div>
-      </div>
-      ${buildReportSummaryHtml('absensi', absensi)}
-      ${section('Rekap Absensi', ['Tanggal','Status','Keterangan'], absensi, 'Tidak ada catatan absensi')}
-      ${buildReportSummaryHtml('pelanggaran', pelanggaran)}
-      ${section('Rekap Pelanggaran', ['Tanggal','JenisPelanggaran','Poin','Penanganan'], pelanggaran, 'Tidak ada catatan pelanggaran')}
-      ${section('Rekap Konseling', ['Tanggal','Topik','HasilKonseling','TindakLanjut'], konseling, 'Tidak ada catatan konseling')}
-      ${section('Rekap Kolaborasi (Panggilan Ortu / Home Visit)', ['Tanggal','Jenis','Tujuan','Hasil'], kolaborasi, 'Tidak ada catatan kolaborasi')}
-      ${section('Rekap 7 Kebiasaan Anak Indonesia Hebat', ['Tanggal','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul'], kebiasaan, 'Belum ada catatan kebiasaan harian')}
-      ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
-    `;
-    $('#reportPreview').innerHTML = html;
-    $('#reportPreviewCard').style.display = 'block';
-    $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
-    setTimeout(() => window.print(), 400);
-    return;
-  }
-
-  const kelas = $('#reportKelas').value;
-  let rows = STATE[type] || [];
-  if (kelas) rows = rows.filter(r => r.Kelas === kelas);
-  rows = filterByPeriode(rows, type);
-  if ('Tanggal' in (rows[0]||{}) || REPORT_COLUMNS[type].includes('Tanggal')){
-    rows = rows.slice().sort((a,b)=> new Date(a.Tanggal)-new Date(b.Tanggal));
-  }
-  const cols = REPORT_COLUMNS[type];
-  const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
-  const showRekapKelas = $('#reportRekapKelas').checked;
-
-  const html = `
-    <h2>${REPORT_TITLES[type]}</h2>
-    <div class="report-head-line"><span>Kelas: ${escapeHtml(kelas || 'Semua Kelas')} &nbsp;|&nbsp; Periode: ${periodeLabel()}</span><span>Dicetak: ${today}</span></div>
-    ${buildReportSummaryHtml(type, rows)}
-    ${showRekapKelas ? buildKelasRecapHtml(type, rows) : ''}
-    <h3 style="margin-top:22px">Rincian Data</h3>
-    <table>
-      <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-      <tbody>
-        ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(r[c] ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
-      </tbody>
-    </table>
-    <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
-  `;
-  $('#reportPreview').innerHTML = html;
-  $('#reportPreviewCard').style.display = 'block';
-  $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
-  setTimeout(() => window.print(), 400);
-});
-
-/* Ringkasan total absensi (Hadir/Sakit/Izin/Alpa) & total pelanggaran, ditampilkan di atas tabel laporan */
-function buildReportSummaryHtml(type, rows){
-  if (type === 'absensi'){
-    const count = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-    rows.forEach(r => { if (count[r.Status] !== undefined) count[r.Status]++; });
-    return `
-      <div class="report-summary">
-        <div class="report-summary-item"><span class="label">Total Hadir</span><span class="value">${count.Hadir}</span></div>
-        <div class="report-summary-item"><span class="label">Total Sakit</span><span class="value">${count.Sakit}</span></div>
-        <div class="report-summary-item"><span class="label">Total Izin</span><span class="value">${count.Izin}</span></div>
-        <div class="report-summary-item"><span class="label">Total Alpa</span><span class="value">${count.Alpa}</span></div>
-        <div class="report-summary-item"><span class="label">Total Keseluruhan</span><span class="value">${rows.length}</span></div>
-      </div>`;
-  }
-  if (type === 'pelanggaran'){
-    const totalPoin = rows.reduce((sum, r) => sum + (Number(r.Poin) || 0), 0);
-    return `
-      <div class="report-summary">
-        <div class="report-summary-item"><span class="label">Total Kasus Pelanggaran</span><span class="value">${rows.length}</span></div>
-        <div class="report-summary-item"><span class="label">Total Poin Pelanggaran</span><span class="value">${totalPoin}</span></div>
-      </div>`;
-  }
-  return '';
-}
-
-/* Rekap ringkas per kelas — mengelompokkan data (yang sudah difilter periode/kelas)
-   berdasarkan kolom Kelas, supaya guru BK bisa langsung lihat perbandingan antar
-   kelas dalam satu bulan / satu semester tanpa harus scroll rincian satu-satu. */
-function buildKelasRecapHtml(type, rows){
-  if (!rows.length) return '';
-  const classes = Array.from(new Set(rows.map(r => r.Kelas || '-'))).sort((a,b)=> String(a).localeCompare(String(b), 'id'));
-  if (classes.length < 1) return '';
-
-  let head, body;
-  if (type === 'siswa'){
-    head = ['Kelas','Jumlah Siswa','Laki-laki','Perempuan'];
-    body = classes.map(k => {
-      const grp = rows.filter(r => (r.Kelas||'-') === k);
-      const l = grp.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('L')).length;
-      const p = grp.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('P')).length;
-      return [k, grp.length, l, p];
-    });
-  } else if (type === 'absensi'){
-    head = ['Kelas','Hadir','Sakit','Izin','Alpa','Total'];
-    body = classes.map(k => {
-      const grp = rows.filter(r => (r.Kelas||'-') === k);
-      const c = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-      grp.forEach(r => { if (c[r.Status] !== undefined) c[r.Status]++; });
-      return [k, c.Hadir, c.Sakit, c.Izin, c.Alpa, grp.length];
-    });
-  } else if (type === 'pelanggaran'){
-    head = ['Kelas','Jumlah Kasus','Total Poin'];
-    body = classes.map(k => {
-      const grp = rows.filter(r => (r.Kelas||'-') === k);
-      const totalPoin = grp.reduce((s,r)=> s + (Number(r.Poin)||0), 0);
-      return [k, grp.length, totalPoin];
-    });
-  } else {
-    // konseling, kolaborasi, kebiasaan: cukup jumlah catatan per kelas
-    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', kebiasaan:'Jumlah Formulir Terisi' };
-    head = ['Kelas', labelMap[type] || 'Jumlah Data'];
-    body = classes.map(k => {
-      const grp = rows.filter(r => (r.Kelas||'-') === k);
-      return [k, grp.length];
-    });
-  }
-
-  const totalsRow = head.map((h,i) => {
-    if (i === 0) return 'Total';
-    const isNumericCol = body.every(row => typeof row[i] === 'number');
-    return isNumericCol ? body.reduce((s,row)=> s + row[i], 0) : '';
-  });
-
-  return `
-    <h3 style="margin-top:22px">Rekap per Kelas</h3>
-    <table>
-      <thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-      <tbody>
-        ${body.map(row => `<tr>${row.map((v,i)=> `<td${i>0?' style="text-align:center"':''}>${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}
-        <tr style="font-weight:700;background:#f7f8f6">${totalsRow.map((v,i)=> `<td${i>0?' style="text-align:center"':''}>${escapeHtml(v)}</td>`).join('')}</tr>
-      </tbody>
-    </table>`;
-}
-
-/* ---------------- IMPORT DATA SISWA DARI EXCEL ----------------
-   Import HANYA menambahkan siswa baru (dicocokkan lewat NIS).
-   Siswa yang NIS-nya sudah ada di database TIDAK akan ditimpa —
-   data yang sudah kamu input manual sebelumnya tetap aman. Input
-   manual lewat tombol "Tambah Siswa" tetap berfungsi seperti biasa. */
-const SISWA_TEMPLATE_COLUMNS = ['NIS','Nama','Kelas','JenisKelamin','TempatTglLahir','NamaOrtu','NoHPOrtu','Alamat','Catatan'];
-
-function downloadSiswaTemplate(){
-  const contoh = { NIS:'2201099', Nama:'Contoh Nama Siswa', Kelas:'VII-A', JenisKelamin:'L',
-    TempatTglLahir:'Kota, 01-01-2012', NamaOrtu:'Nama Orang Tua', NoHPOrtu:'0812xxxxxxx',
-    Alamat:'Alamat lengkap', Catatan:'' };
-  const ws = XLSX.utils.json_to_sheet([contoh], { header: SISWA_TEMPLATE_COLUMNS });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Siswa');
-  XLSX.writeFile(wb, 'Template_Import_Siswa_BKDigital.xlsx');
-}
-$('#btnDownloadTemplate').addEventListener('click', downloadSiswaTemplate);
-
-$('#btnImportSiswa').addEventListener('click', () => $('#importSiswaFile').click());
-$('#importSiswaFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  showLoading(true);
-  try{
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type:'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
-    const cleaned = rows
-      .map(r => {
-        const o = {};
-        SISWA_TEMPLATE_COLUMNS.forEach(c => { o[c] = (r[c] !== undefined ? String(r[c]).trim() : ''); });
-        return o;
-      })
-      .filter(r => r.NIS && r.Nama); // baris tanpa NIS/Nama diabaikan
-    if (!cleaned.length){ toast('Tidak ada baris valid (butuh minimal kolom NIS & Nama).', 'error'); return; }
-    const result = await adapter.importBulk('siswa', cleaned, 'NIS');
-    await loadAll();
-    toast(`Import selesai: ${result.added} siswa baru ditambahkan, ${result.skipped} dilewati (NIS sudah ada).`, 'success');
-  }catch(err){
-    toast('Gagal mengimpor file: ' + err.message, 'error');
-  }finally{
-    showLoading(false);
-    e.target.value = '';
-  }
-});
-
-/* ---------------- SETUP SCREEN / API URL ---------------- */
-function enterApp(){
-  $('#setupScreen').classList.add('hidden');
-  $('#app').classList.remove('hidden');
-  applyRoleUI();
-  renderSchoolProfile();
-  loadAll();
-}
-$('#apiUrlSave').addEventListener('click', () => {
-  const val = $('#apiUrlInput').value.trim();
-  const tokenVal = $('#apiTokenInput').value.trim();
-  if (!val){ toast('Masukkan URL Web App terlebih dahulu.', 'error'); return; }
-  API_URL = val; API_TOKEN = tokenVal;
-  USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
-  adapter = RealAdapter;
-  localStorage.setItem('bk_api_url', API_URL);
-  localStorage.setItem('bk_api_token', API_TOKEN);
-  localStorage.setItem('bk_role', 'admin');
-  localStorage.removeItem('bk_guru_nama');
-  localStorage.removeItem('bk_guru_kelas');
-  localStorage.removeItem('bk_demo_mode');
-  enterApp();
-});
-
-/* ---------------- LOGIN GURU MAPEL ----------------
-   Guru mapel hanya mengisi Username & Password — URL Web App sudah
-   otomatis terisi (DEFAULT_API_URL yang di-bake admin, atau tersisa
-   dari sesi sebelumnya di browser yang sama). Tidak ada field URL/token
-   yang perlu mereka sentuh sama sekali. */
-$('#showGuruLoginLink').addEventListener('click', (e) => {
-  e.preventDefault();
-  $('#adminSetupCard').classList.add('hidden');
-  $('#guruLoginCard').classList.remove('hidden');
-});
-$('#showAdminLoginLink').addEventListener('click', (e) => {
-  e.preventDefault();
-  $('#guruLoginCard').classList.add('hidden');
-  $('#adminSetupCard').classList.remove('hidden');
-});
-async function submitGuruLogin(){
-  const username = $('#guruUsernameInput').value.trim();
-  const password = $('#guruPasswordInput').value;
-  if (!username || !password){ toast('Username dan password wajib diisi.', 'error'); return; }
-  if (!API_URL){
-    toast('Aplikasi belum tersambung ke server sekolah. Hubungi Guru BK/admin.', 'error');
-    return;
-  }
-  const btn = $('#guruLoginBtn');
-  const originalLabel = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Masuk...';
-  try{
-    const session = await RealAdapter.loginGuru(username, password);
-    API_TOKEN = session.sessionToken;
-    USER_ROLE = 'guru';
-    GURU_NAMA = session.nama || '';
-    GURU_KELAS = session.kelas || [];
-    adapter = RealAdapter;
-    localStorage.setItem('bk_api_url', API_URL);
-    localStorage.setItem('bk_api_token', API_TOKEN);
-    localStorage.setItem('bk_role', 'guru');
-    localStorage.setItem('bk_guru_nama', GURU_NAMA);
-    localStorage.setItem('bk_guru_kelas', JSON.stringify(GURU_KELAS));
-    localStorage.removeItem('bk_demo_mode');
-    $('#guruPasswordInput').value = '';
-    enterApp();
-  }catch(err){
-    toast(err.message, 'error');
-  }finally{
-    btn.disabled = false; btn.innerHTML = originalLabel;
-  }
-}
-$('#guruLoginBtn').addEventListener('click', submitGuruLogin);
-$('#guruPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitGuruLogin(); });
-
-/* Tampilkan/sembunyikan menu sesuai peran yang login. Guru mapel hanya
-   melihat menu Pelanggaran; item nav lain, Pengaturan, dan tombol Kelola
-   Template disembunyikan. Ini murni tampilan — backend TETAP menolak akses
-   ke tipe data lain walau menu disembunyikan (lihat Code.gs). */
-function applyRoleUI(){
-  const isGuru = USER_ROLE === 'guru';
-  $all('.nav-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
-  $all('.bn-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
-  $('#settingsBtn').classList.toggle('hidden', isGuru);
-  $('#settingsBtnMobile').classList.toggle('hidden', isGuru);
-  $('#guruAccountsBtn').classList.toggle('hidden', isGuru);
-  $('#guruAccountsBtnMobile').classList.toggle('hidden', isGuru);
-  $('#logoutBtn').classList.toggle('hidden', !isGuru);
-  $('#logoutBtnMobile').classList.toggle('hidden', !isGuru);
-  const mplBtn = $('#btnMasterPelanggaran');
-  if (mplBtn) mplBtn.classList.toggle('hidden', isGuru);
-  const badge = $('#guruBadge');
-  if (badge){
-    badge.classList.toggle('hidden', !isGuru);
-    badge.textContent = isGuru ? `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ''}` : '';
-  }
-  if (isGuru) goToPage('pelanggaran');
-}
-
-function logout(){
-  API_TOKEN = ''; USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
-  localStorage.removeItem('bk_api_token');
-  localStorage.removeItem('bk_role');
-  localStorage.removeItem('bk_guru_nama');
-  localStorage.removeItem('bk_guru_kelas');
-  $('#app').classList.add('hidden');
-  $('#setupScreen').classList.remove('hidden');
-  $('#adminSetupCard').classList.add('hidden');
-  $('#guruLoginCard').classList.remove('hidden');
-  $('#guruUsernameInput').value = '';
-  $('#guruPasswordInput').value = '';
-}
-$('#logoutBtn').addEventListener('click', logout);
-$('#logoutBtnMobile').addEventListener('click', () => { closeMoreSheet(); logout(); });
-
-/* demo mode link (added dynamically under the setup note) */
-(function addDemoLink(){
-  const note = document.querySelector('.setup-note');
-  const a = document.createElement('a');
-  a.href = '#'; a.textContent = 'Coba mode demo tanpa Google Sheets →';
-  a.style.cssText = 'display:inline-block;margin-top:10px;color:var(--primary);font-weight:600;font-size:12.5px;';
-  a.addEventListener('click', (e) => {
-    e.preventDefault();
-    adapter = DemoAdapter;
-    DemoAdapter.seedIfEmpty();
-    localStorage.setItem('bk_demo_mode','1');
-    enterApp();
-  });
-  note.after(a);
-})();
-
-/* ---------------- BACKUP DATABASE (Excel, satu file semua tabel) ----------------
-   Murni untuk jaga-jaga: unduh salinan semua data (Siswa, Absensi, Pelanggaran,
-   Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file .xlsx, satu tab per jenis
-   data. Tidak mengubah data apapun di Sheet — cuma membaca STATE yang sedang
-   dimuat lalu menuliskannya ke file baru di komputer pengguna. */
-const BACKUP_SHEET_NAMES = { siswa:'Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', kebiasaan:'Kebiasaan' };
-function downloadFullBackup(){
-  if (!TYPES.some(t => STATE[t] && STATE[t].length)){
-    toast('Belum ada data yang bisa di-backup. Muat ulang data terlebih dahulu.', 'error');
-    return;
-  }
-  const wb = XLSX.utils.book_new();
-  TYPES.forEach(type => {
-    const rows = (STATE[type] || []).map(r => {
-      // buang properti internal (mis. _row dari backend) agar file backup bersih
-      const { _row, ...clean } = r;
-      return clean;
-    });
-    const ws = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([['(Belum ada data)']]);
-    XLSX.utils.book_append_sheet(wb, ws, BACKUP_SHEET_NAMES[type] || type);
-  });
-  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-  XLSX.writeFile(wb, `Backup_BKDigital_${stamp}.xlsx`);
-  toast('Backup berhasil diunduh.', 'success');
-}
-
-/* Settings button lets user change/reset API URL */
-/* Ubah file gambar yang dipilih user jadi base64 data URL yang sudah diperkecil
-   (resize + kompres), supaya cukup kecil untuk disimpan dalam SATU sel Google
-   Sheets (batas ±50.000 karakter per sel) — bukan cuma disimpan di localStorage. */
-function resizeImageToDataUrl(file, maxDim = 240, maxChars = 45000){
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let w = img.width, h = img.height;
-        const scale = Math.min(1, maxDim / Math.max(w, h));
-        w = Math.max(1, Math.round(w * scale));
-        h = Math.max(1, Math.round(h * scale));
-
-        const draw = (cw, ch) => {
-          canvas.width = cw; canvas.height = ch;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch); // latar putih agar tidak jadi hitam saat diubah ke JPEG
-          ctx.drawImage(img, 0, 0, cw, ch);
-        };
-        draw(w, h);
-
-        let quality = 0.85;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        while (dataUrl.length > maxChars && quality > 0.35){
-          quality -= 0.1;
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-        while (dataUrl.length > maxChars && Math.min(w, h) > 32){
-          w = Math.round(w * 0.85); h = Math.round(h * 0.85);
-          draw(w, h);
-          dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        }
-        if (dataUrl.length > maxChars){
-          reject(new Error('Gambar terlalu kompleks untuk dijadikan logo. Coba gambar lain yang lebih sederhana (mis. logo polos berbentuk PNG/JPG).'));
-          return;
-        }
-        resolve(dataUrl);
-      };
-      img.onerror = () => reject(new Error('File bukan gambar yang valid.'));
-      img.src = reader.result;
-    };
-    reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function openSettings(){
-  $('#modalTitle').textContent = 'Pengaturan';
-  $('#modalBody').innerHTML = `
-    <div class="field full backup-box profile-box">
-      <label>Profil Sekolah</label>
-      <p class="muted" style="margin:2px 0 10px">Tampil di halaman Dashboard. Tersimpan di Google Sheet (sheet "Pengaturan") sehingga otomatis muncul lagi di perangkat/browser manapun yang login ke Web App yang sama.</p>
-      <div class="field full" style="margin-bottom:12px">
-        <label>Nama Sekolah</label>
-        <input type="text" id="settingsSchoolName" value="${escapeHtml(SCHOOL_NAME)}" placeholder="Contoh: SMA Negeri 1 Harapan" />
-      </div>
-      <div class="field full" style="margin-bottom:12px">
-        <label>Tahun Pelajaran Aktif</label>
-        <input type="text" id="settingsSchoolYear" value="${escapeHtml(SCHOOL_YEAR)}" placeholder="Contoh: 2025/2026" />
-      </div>
-      <div class="field full" style="margin-bottom:4px">
-        <label>Logo Sekolah</label>
-        <div class="logo-upload-row">
-          <div class="logo-preview" id="settingsLogoPreviewWrap">
-            ${SCHOOL_LOGO ? `<img id="settingsLogoPreview" src="${SCHOOL_LOGO}" alt="Logo" />` : `<i class="fa-solid fa-image"></i>`}
-          </div>
-          <div class="logo-upload-actions">
-            <input type="file" id="settingsLogoFile" accept="image/*" class="hidden" />
-            <button class="btn btn-ghost" id="settingsLogoBtn" type="button"><i class="fa-solid fa-upload"></i> Upload Logo</button>
-            <button class="btn btn-ghost" id="settingsLogoRemoveBtn" type="button" style="${SCHOOL_LOGO ? '' : 'display:none'}"><i class="fa-solid fa-trash"></i> Hapus</button>
-          </div>
-        </div>
-        <p class="muted" style="margin-top:6px;font-size:11.5px">Logo otomatis diperkecil & dikompres agar muat disimpan di Google Sheet.</p>
-      </div>
-      <button class="btn btn-primary" id="settingsProfileSaveBtn" type="button" style="margin-top:14px"><i class="fa-solid fa-check"></i> Simpan Profil Sekolah</button>
-    </div>
-
-    <div class="field full" style="margin-bottom:16px">
-      <label>URL Web App Google Apps Script</label>
-      <input type="url" id="settingsApiUrl" value="${escapeHtml(API_URL)}" placeholder="https://script.google.com/macros/s/xxxxx/exec" />
-    </div>
-    <div class="field full" style="margin-bottom:16px">
-      <label>Token / Kata Sandi Akses</label>
-      <input type="password" id="settingsApiToken" value="${escapeHtml(API_TOKEN)}" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
-    </div>
-    <div class="field full backup-box">
-      <label>Backup Database</label>
-      <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
-      <button class="btn btn-ghost" id="settingsBackupBtn" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Backup (Excel)</button>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="settingsDemoBtn" type="button">Gunakan Mode Demo</button>
-      <button class="btn btn-primary" id="settingsSaveBtn" type="button"><i class="fa-solid fa-check"></i> Simpan &amp; Muat Ulang</button>
-    </div>`;
-
-  // ---- Profil Sekolah ----
-  let pendingLogoDataUrl = SCHOOL_LOGO;
-  $('#settingsLogoBtn').addEventListener('click', () => $('#settingsLogoFile').click());
-  $('#settingsLogoFile').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')){ toast('File harus berupa gambar.', 'error'); return; }
-    const btn = $('#settingsLogoBtn');
-    const originalLabel = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses...';
-    try{
-      pendingLogoDataUrl = await resizeImageToDataUrl(file);
-      $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${pendingLogoDataUrl}" alt="Logo" />`;
-      $('#settingsLogoRemoveBtn').style.display = '';
-    }catch(err){
-      toast(err.message, 'error');
-    }finally{
-      btn.disabled = false; btn.innerHTML = originalLabel;
-      e.target.value = '';
+  Object.keys(dataObj).forEach(function(key){
+    var value = dataObj[key];
+    if (rowIndexByKey[key]){
+      sheet.getRange(rowIndexByKey[key], 2).setValue(value);
+    } else {
+      sheet.appendRow([key, value]);
+      rowIndexByKey[key] = sheet.getLastRow();
     }
   });
-  $('#settingsLogoRemoveBtn').addEventListener('click', () => {
-    pendingLogoDataUrl = '';
-    $('#settingsLogoPreviewWrap').innerHTML = `<i class="fa-solid fa-image"></i>`;
-    $('#settingsLogoRemoveBtn').style.display = 'none';
-  });
-  $('#settingsProfileSaveBtn').addEventListener('click', async () => {
-    const name = $('#settingsSchoolName').value.trim();
-    const year = $('#settingsSchoolYear').value.trim();
-    const logo = pendingLogoDataUrl || '';
-    const btn = $('#settingsProfileSaveBtn');
-    const originalLabel = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
-    try{
-      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo });
-      SCHOOL_NAME = name; SCHOOL_YEAR = year; SCHOOL_LOGO = logo;
-      localStorage.setItem('bk_school_name', SCHOOL_NAME);
-      localStorage.setItem('bk_school_year', SCHOOL_YEAR);
-      if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
-      else localStorage.removeItem('bk_school_logo');
-      renderSchoolProfile();
-      toast('Profil sekolah disimpan ke Google Sheet.', 'success');
-    }catch(err){
-      toast('Gagal menyimpan profil sekolah: ' + err.message, 'error');
-    }finally{
-      btn.disabled = false; btn.innerHTML = originalLabel;
-    }
-  });
-
-  // ---- Koneksi & backup ----
-  $('#settingsBackupBtn').addEventListener('click', downloadFullBackup);
-  $('#settingsSaveBtn').addEventListener('click', () => {
-    const val = $('#settingsApiUrl').value.trim();
-    const tokenVal = $('#settingsApiToken').value.trim();
-    if (!val){ toast('URL tidak boleh kosong.', 'error'); return; }
-    API_URL = val; API_TOKEN = tokenVal; adapter = RealAdapter;
-    localStorage.setItem('bk_api_url', API_URL);
-    localStorage.setItem('bk_api_token', API_TOKEN);
-    localStorage.removeItem('bk_demo_mode');
-    closeModal(); loadAll(); toast('Pengaturan disimpan.', 'success');
-  });
-  $('#settingsDemoBtn').addEventListener('click', () => {
-    adapter = DemoAdapter; DemoAdapter.seedIfEmpty();
-    localStorage.setItem('bk_demo_mode','1');
-    closeModal(); loadAll(); toast('Mode demo diaktifkan.', 'success');
-  });
-  openModal();
-}
-$('#settingsBtn').addEventListener('click', openSettings);
-$('#settingsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openSettings(); });
-$('#guruAccountsBtn').addEventListener('click', () => openGuruAccounts());
-$('#guruAccountsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openGuruAccounts(); });
-
-/* ---------------- KELOLA AKUN GURU MAPEL ----------------
-   Admin/Guru BK menambah, mengedit, dan menghapus akun login guru mapel
-   dari sini. Kelas diketik dipisah koma (mis. "VII-A, VII-B") — itulah
-   satu-satunya kelas yang bisa dilihat/dicatat pelanggarannya oleh akun ini,
-   ditegakkan di server (lihat Code.gs), bukan cuma disembunyikan di tampilan. */
-function openGuruAccounts(){
-  $('#modalTitle').textContent = 'Kelola Akun Guru Mapel';
-  let editingId = null;
-
-  $('#modalBody').innerHTML = `
-    <p class="muted" style="margin:0 0 14px">Setiap akun di bawah bisa login (tanpa perlu tahu URL Web App/token) dan hanya melihat &amp; mencatat Pelanggaran untuk kelas yang kamu tulis di sini.</p>
-    <form id="guruAccountForm">
-      <div class="form-grid">
-        <div class="field"><label>Nama Guru</label>
-          <input type="text" id="gaNama" placeholder="Contoh: Budi Santoso, S.Pd" required />
-        </div>
-        <div class="field"><label>Username</label>
-          <input type="text" id="gaUsername" placeholder="Contoh: budi.santoso" required autocomplete="off" />
-        </div>
-        <div class="field"><label>Password</label>
-          <input type="text" id="gaPassword" placeholder="${'Isi/ganti password'}" />
-        </div>
-        <div class="field"><label>Status</label>
-          <select id="gaStatus">
-            <option value="Aktif">Aktif</option>
-            <option value="Nonaktif">Nonaktif</option>
-          </select>
-        </div>
-        <div class="field full"><label>Kelas Tanggung Jawab</label>
-          <input type="text" id="gaKelas" placeholder="Contoh: VII-A, VII-B (pisahkan dengan koma)" required />
-        </div>
-      </div>
-      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:18px">
-        <button type="submit" class="btn btn-primary" id="gaSubmitBtn"><i class="fa-solid fa-plus"></i> Tambah Akun</button>
-        <button type="button" class="btn btn-ghost hidden" id="gaCancelEditBtn">Batal Edit</button>
-      </div>
-    </form>
-    <div class="bulk-siswa-list" id="gaList" style="max-height:280px"></div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" id="gaCloseBtn">Tutup</button>
-    </div>`;
-
-  function renderList(){
-    const list = $('#gaList');
-    const rows = STATE.guru.slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
-    if (!rows.length){
-      list.innerHTML = `<p class="muted" style="padding:8px">Belum ada akun Guru Mapel. Tambahkan lewat form di atas.</p>`;
-      return;
-    }
-    list.innerHTML = rows.map(g => `
-      <div class="bulk-item mpl-item">
-        <span class="mpl-info"><b>${escapeHtml(g.Nama||'-')}</b> <span class="muted">· @${escapeHtml(g.Username||'-')} · ${escapeHtml(g.Kelas||'-')} · ${escapeHtml(g.Status||'Aktif')}</span></span>
-        <span class="search-dd-actions">
-          <button type="button" class="icon-btn-sm" data-ga-edit="${escapeHtml(g.ID)}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-          <button type="button" class="icon-btn-sm danger" data-ga-del="${escapeHtml(g.ID)}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
-        </span>
-      </div>`).join('');
-  }
-  renderList();
-
-  $('#gaList').addEventListener('click', async (e) => {
-    const editBtn = e.target.closest('[data-ga-edit]');
-    const delBtn = e.target.closest('[data-ga-del]');
-    if (editBtn){
-      const g = STATE.guru.find(o => String(o.ID)===String(editBtn.dataset.gaEdit));
-      if (!g) return;
-      editingId = g.ID;
-      $('#gaNama').value = g.Nama || '';
-      $('#gaUsername').value = g.Username || '';
-      $('#gaPassword').value = '';
-      $('#gaPassword').placeholder = 'Kosongkan jika tidak ingin mengubah password';
-      $('#gaStatus').value = g.Status || 'Aktif';
-      $('#gaKelas').value = g.Kelas || '';
-      $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> Update Akun';
-      $('#gaCancelEditBtn').classList.remove('hidden');
-      $('#gaNama').focus();
-      return;
-    }
-    if (delBtn){
-      if (!confirm('Hapus akun guru mapel ini? Guru yang bersangkutan tidak akan bisa login lagi.')) return;
-      const id = delBtn.dataset.gaDel;
-      try{
-        await adapter.delete('guru', id);
-        STATE.guru = STATE.guru.filter(o => String(o.ID)!==String(id));
-        renderList();
-        toast('Akun guru mapel dihapus.', 'success');
-      }catch(err){
-        toast(err.message, 'error');
-      }
-    }
-  });
-
-  $('#gaCancelEditBtn').addEventListener('click', () => {
-    editingId = null;
-    $('#guruAccountForm').reset();
-    $('#gaPassword').placeholder = 'Isi/ganti password';
-    $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
-    $('#gaCancelEditBtn').classList.add('hidden');
-  });
-
-  $('#guruAccountForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const nama = $('#gaNama').value.trim();
-    const username = $('#gaUsername').value.trim();
-    const password = $('#gaPassword').value;
-    const status = $('#gaStatus').value;
-    const kelas = $('#gaKelas').value.trim();
-    if (!nama || !username || !kelas){ toast('Nama, Username, dan Kelas wajib diisi.', 'error'); return; }
-    if (!editingId && !password){ toast('Password wajib diisi untuk akun baru.', 'error'); return; }
-    const btn = $('#gaSubmitBtn');
-    const originalLabel = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
-    try{
-      const data = { Nama: nama, Username: username, Status: status, Kelas: kelas };
-      if (password) data.Password = password;
-      if (editingId){
-        const updated = await adapter.update('guru', editingId, data);
-        const idx = STATE.guru.findIndex(o => String(o.ID)===String(editingId));
-        if (idx > -1) STATE.guru[idx] = { ...STATE.guru[idx], ...updated, ...data, ID: editingId };
-        toast('Akun guru mapel diperbarui.', 'success');
-      } else {
-        const created = await adapter.create('guru', data);
-        STATE.guru.push({ ...data, ...created });
-        toast('Akun guru mapel ditambahkan.', 'success');
-      }
-      editingId = null;
-      $('#guruAccountForm').reset();
-      $('#gaPassword').placeholder = 'Isi/ganti password';
-      $('#gaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
-      $('#gaCancelEditBtn').classList.add('hidden');
-      renderList();
-    }catch(err){
-      toast(err.message, 'error');
-    }finally{
-      btn.disabled = false; btn.innerHTML = originalLabel;
-    }
-  });
-
-  $('#gaCloseBtn').addEventListener('click', openSettings);
-  openModal();
+  return readSettingsMap();
 }
 
-/* ---------------- MOBILE HAMBURGER (opens sidebar-equivalent: more sheet w/ full nav) ---------------- */
-$('#hamburgerBtn').addEventListener('click', openMoreSheet);
-
-/* ---------------- INIT ---------------- */
-(function init(){
-  if (localStorage.getItem('bk_demo_mode') === '1'){
-    adapter = DemoAdapter; DemoAdapter.seedIfEmpty(); enterApp();
-    return;
-  }
-  if (API_URL && API_TOKEN){
-    // Ada sesi tersimpan (admin ATAU guru mapel yang sudah pernah login) —
-    // langsung masuk, applyRoleUI() di dalam enterApp() yang menentukan
-    // tampilannya sesuai USER_ROLE yang tersimpan.
-    $('#apiUrlInput').value = API_URL;
-    $('#apiTokenInput').value = API_TOKEN;
-    adapter = RealAdapter; enterApp();
-    return;
-  }
-  // Belum ada sesi aktif -> tampilkan layar login. Kalau URL Web App sudah
-  // ter-bake (DEFAULT_API_URL diisi admin saat deploy), asumsikan mayoritas
-  // pengunjung adalah Guru Mapel dan langsung tampilkan form Username/Password
-  // itu duluan, supaya mereka tidak perlu klik "Login sebagai Guru Mapel" dulu.
-  if (DEFAULT_API_URL){
-    $('#adminSetupCard').classList.add('hidden');
-    $('#guruLoginCard').classList.remove('hidden');
-  }
-})();
+/* ---------------- OUTPUT ---------------- */
+function jsonOut(obj){
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
