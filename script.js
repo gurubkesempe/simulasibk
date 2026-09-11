@@ -25,6 +25,31 @@ let API_TOKEN = localStorage.getItem('bk_api_token') || '';
 let currentPage = 'dashboard';
 let charts = {};
 
+/* ---------------- PROFIL SEKOLAH ----------------
+   Disimpan di localStorage saja (murni tampilan), tidak dikirim ke Google Sheet,
+   supaya tidak perlu mengubah struktur backend. Logo disimpan sebagai base64
+   data URL agar bisa langsung ditampilkan tanpa perlu hosting file terpisah. */
+let SCHOOL_NAME = localStorage.getItem('bk_school_name') || '';
+let SCHOOL_YEAR = localStorage.getItem('bk_school_year') || '';
+let SCHOOL_LOGO = localStorage.getItem('bk_school_logo') || '';
+
+function renderSchoolProfile(){
+  const bar = $('#schoolProfileBar');
+  if (!bar) return;
+  const hasAny = SCHOOL_NAME || SCHOOL_YEAR || SCHOOL_LOGO;
+  bar.style.display = hasAny ? 'flex' : 'none';
+  $('#schoolProfileName').textContent = SCHOOL_NAME || 'Nama Sekolah';
+  $('#schoolProfileYear').textContent = SCHOOL_YEAR ? `Tahun Pelajaran ${SCHOOL_YEAR}` : 'Tahun Pelajaran belum diatur';
+  const img = $('#schoolProfileLogo');
+  const icon = $('#schoolProfileLogoIcon');
+  if (SCHOOL_LOGO){
+    img.src = SCHOOL_LOGO; img.style.display = 'block'; icon.style.display = 'none';
+  } else {
+    img.style.display = 'none'; icon.style.display = 'block';
+  }
+  document.title = SCHOOL_NAME ? `BK Digital — ${SCHOOL_NAME}` : 'BK Digital — Sistem Bimbingan Konseling';
+}
+
 /* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
 const RealAdapter = {
   async getAll(type){
@@ -242,6 +267,7 @@ async function loadAll(){
     populateClassFilters();
     renderCurrentPage();
     renderDashboard();
+    renderSchoolProfile();
   }catch(err){
     toast('Gagal memuat data: ' + err.message, 'error');
   }finally{
@@ -1316,6 +1342,7 @@ $('#importSiswaFile').addEventListener('change', async (e) => {
 function enterApp(){
   $('#setupScreen').classList.add('hidden');
   $('#app').classList.remove('hidden');
+  renderSchoolProfile();
   loadAll();
 }
 $('#apiUrlSave').addEventListener('click', () => {
@@ -1373,9 +1400,47 @@ function downloadFullBackup(){
 }
 
 /* Settings button lets user change/reset API URL */
+/* Ubah file gambar yang dipilih user jadi base64 data URL, supaya bisa langsung
+   disimpan di localStorage & ditampilkan tanpa perlu upload ke server manapun. */
+function fileToDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function openSettings(){
-  $('#modalTitle').textContent = 'Pengaturan Koneksi';
+  $('#modalTitle').textContent = 'Pengaturan';
   $('#modalBody').innerHTML = `
+    <div class="field full backup-box profile-box">
+      <label>Profil Sekolah</label>
+      <p class="muted" style="margin:2px 0 10px">Tampil di halaman Dashboard. Disimpan di browser ini saja (localStorage), tidak ikut tersimpan ke Google Sheet.</p>
+      <div class="field full" style="margin-bottom:12px">
+        <label>Nama Sekolah</label>
+        <input type="text" id="settingsSchoolName" value="${escapeHtml(SCHOOL_NAME)}" placeholder="Contoh: SMA Negeri 1 Harapan" />
+      </div>
+      <div class="field full" style="margin-bottom:12px">
+        <label>Tahun Pelajaran Aktif</label>
+        <input type="text" id="settingsSchoolYear" value="${escapeHtml(SCHOOL_YEAR)}" placeholder="Contoh: 2025/2026" />
+      </div>
+      <div class="field full" style="margin-bottom:4px">
+        <label>Logo Sekolah</label>
+        <div class="logo-upload-row">
+          <div class="logo-preview" id="settingsLogoPreviewWrap">
+            ${SCHOOL_LOGO ? `<img id="settingsLogoPreview" src="${SCHOOL_LOGO}" alt="Logo" />` : `<i class="fa-solid fa-image"></i>`}
+          </div>
+          <div class="logo-upload-actions">
+            <input type="file" id="settingsLogoFile" accept="image/*" class="hidden" />
+            <button class="btn btn-ghost" id="settingsLogoBtn" type="button"><i class="fa-solid fa-upload"></i> Upload Logo</button>
+            <button class="btn btn-ghost" id="settingsLogoRemoveBtn" type="button" style="${SCHOOL_LOGO ? '' : 'display:none'}"><i class="fa-solid fa-trash"></i> Hapus</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="settingsProfileSaveBtn" type="button" style="margin-top:14px"><i class="fa-solid fa-check"></i> Simpan Profil Sekolah</button>
+    </div>
+
     <div class="field full" style="margin-bottom:16px">
       <label>URL Web App Google Apps Script</label>
       <input type="url" id="settingsApiUrl" value="${escapeHtml(API_URL)}" placeholder="https://script.google.com/macros/s/xxxxx/exec" />
@@ -1393,6 +1458,41 @@ function openSettings(){
       <button class="btn btn-ghost" id="settingsDemoBtn" type="button">Gunakan Mode Demo</button>
       <button class="btn btn-primary" id="settingsSaveBtn" type="button"><i class="fa-solid fa-check"></i> Simpan &amp; Muat Ulang</button>
     </div>`;
+
+  // ---- Profil Sekolah ----
+  let pendingLogoDataUrl = SCHOOL_LOGO;
+  $('#settingsLogoBtn').addEventListener('click', () => $('#settingsLogoFile').click());
+  $('#settingsLogoFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')){ toast('File harus berupa gambar.', 'error'); return; }
+    if (file.size > 1.5 * 1024 * 1024){ toast('Ukuran logo maksimal 1.5MB.', 'error'); return; }
+    try{
+      pendingLogoDataUrl = await fileToDataUrl(file);
+      $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${pendingLogoDataUrl}" alt="Logo" />`;
+      $('#settingsLogoRemoveBtn').style.display = '';
+    }catch(err){
+      toast(err.message, 'error');
+    }
+  });
+  $('#settingsLogoRemoveBtn').addEventListener('click', () => {
+    pendingLogoDataUrl = '';
+    $('#settingsLogoPreviewWrap').innerHTML = `<i class="fa-solid fa-image"></i>`;
+    $('#settingsLogoRemoveBtn').style.display = 'none';
+  });
+  $('#settingsProfileSaveBtn').addEventListener('click', () => {
+    SCHOOL_NAME = $('#settingsSchoolName').value.trim();
+    SCHOOL_YEAR = $('#settingsSchoolYear').value.trim();
+    SCHOOL_LOGO = pendingLogoDataUrl || '';
+    localStorage.setItem('bk_school_name', SCHOOL_NAME);
+    localStorage.setItem('bk_school_year', SCHOOL_YEAR);
+    if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
+    else localStorage.removeItem('bk_school_logo');
+    renderSchoolProfile();
+    toast('Profil sekolah disimpan.', 'success');
+  });
+
+  // ---- Koneksi & backup ----
   $('#settingsBackupBtn').addEventListener('click', downloadFullBackup);
   $('#settingsSaveBtn').addEventListener('click', () => {
     const val = $('#settingsApiUrl').value.trim();
