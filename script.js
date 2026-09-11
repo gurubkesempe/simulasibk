@@ -1802,6 +1802,8 @@ function applyRoleUI(){
   $all('.bn-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
   $('#settingsBtn').classList.toggle('hidden', isGuru);
   $('#settingsBtnMobile').classList.toggle('hidden', isGuru);
+  $('#guruAccountsBtn').classList.toggle('hidden', isGuru);
+  $('#guruAccountsBtnMobile').classList.toggle('hidden', isGuru);
   $('#logoutBtn').classList.toggle('hidden', !isGuru);
   $('#logoutBtnMobile').classList.toggle('hidden', !isGuru);
   const mplBtn = $('#btnMasterPelanggaran');
@@ -1961,11 +1963,6 @@ function openSettings(){
       <input type="password" id="settingsApiToken" value="${escapeHtml(API_TOKEN)}" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
     </div>
     <div class="field full backup-box">
-      <label>Akun Guru Mapel</label>
-      <p class="muted" style="margin:2px 0 10px">Buat akun Username &amp; Password untuk tiap guru mapel. Setelah login, guru hanya bisa melihat &amp; mencatat data Pelanggaran untuk kelas yang kamu tentukan di sini — tanpa perlu tahu URL Web App atau token.</p>
-      <button class="btn btn-ghost" id="settingsGuruAccountsBtn" type="button"><i class="fa-solid fa-users-gear"></i> Kelola Akun Guru Mapel</button>
-    </div>
-    <div class="field full backup-box">
       <label>Backup Database</label>
       <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
       <button class="btn btn-ghost" id="settingsBackupBtn" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Backup (Excel)</button>
@@ -2025,7 +2022,6 @@ function openSettings(){
   });
 
   // ---- Koneksi & backup ----
-  $('#settingsGuruAccountsBtn').addEventListener('click', () => openGuruAccounts());
   $('#settingsBackupBtn').addEventListener('click', downloadFullBackup);
   $('#settingsSaveBtn').addEventListener('click', () => {
     const val = $('#settingsApiUrl').value.trim();
@@ -2046,6 +2042,8 @@ function openSettings(){
 }
 $('#settingsBtn').addEventListener('click', openSettings);
 $('#settingsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openSettings(); });
+$('#guruAccountsBtn').addEventListener('click', () => openGuruAccounts());
+$('#guruAccountsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openGuruAccounts(); });
 
 /* ---------------- KELOLA AKUN GURU MAPEL ----------------
    Admin/Guru BK menambah, mengedit, dan menghapus akun login guru mapel
