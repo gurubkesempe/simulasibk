@@ -4,7 +4,24 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
-## -1. PENTING (update terbaru) — ganti Code.gs lagi
+## -2. PENTING (update terbaru) — ganti Code.gs lagi: TTD Siswa di Konseling
+
+Form **Tambah/Edit Sesi Konseling** sekarang punya kotak **Tanda Tangan / Paraf Siswa**
+(digambar langsung di layar pakai mouse atau jari di HP/tablet). Setelah sesi konseling
+selesai, minta siswa tanda tangan/paraf di kotak itu sebelum disimpan.
+
+- Tersimpan sebagai kolom baru **"TTD"** di sheet Konseling — kolom ini **otomatis
+  ditambahkan sendiri** ke sheet Konseling yang sudah ada (lewat `ensureHeaderColumns()`
+  di `Code.gs`), jadi tidak perlu edit manual header sheet, dan data konseling lama sama
+  sekali tidak tersentuh.
+- TTD ini otomatis ikut muncul di halaman **Laporan** (Rekap Konseling & Laporan Individu
+  Siswa), ditampilkan sebagai gambar kecil tepat di sebelah kolom **Tindak Lanjut** —
+  klik gambarnya untuk memperbesar.
+- Karena ada kolom baru, **wajib timpa ulang `Code.gs`** kamu (lihat langkah di bagian 1
+  di bawah), kalau tidak TTD yang digambar akan diam-diam terbuang karena backend lama
+  tidak mengenali kolom "TTD".
+
+## -1. PENTING (update sebelumnya) — ganti Code.gs lagi
 
 Update kali ini:
 
