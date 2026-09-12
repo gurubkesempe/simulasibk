@@ -776,10 +776,19 @@ function renderPelanggaran(searchQuery){
 ['#filterKelasPelanggaran','#filterBulanPelanggaran'].forEach(sel => $(sel).addEventListener('change', renderPelanggaran));
 
 /* ---------------- KONSELING (card list) ---------------- */
+/* Untuk tampilan Konseling, identitas siswa ditampilkan sebagai NIS (bukan Nama)
+   supaya lebih ringkas & sesuai kebutuhan sekolah — diambil dari data Siswa yang
+   masih aktif lewat SiswaID, dengan fallback aman kalau siswa itu sudah dihapus. */
+function konselingDisplayNis(k){
+  const s = siswaById(k.SiswaID);
+  if (s && s.NIS) return s.NIS;
+  return k.NIS || '-';
+}
+
 function renderKonseling(searchQuery){
   const kelas = $('#filterKelasKonseling').value;
   let rows = STATE.konseling.filter(k => !kelas || k.Kelas===kelas);
-  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery) || (k.Topik||'').toLowerCase().includes(searchQuery));
+  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery) || (k.Topik||'').toLowerCase().includes(searchQuery) || konselingDisplayNis(k).toLowerCase().includes(searchQuery));
   rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
   const list = $('#listKonseling');
   $('#emptyKonseling').style.display = rows.length ? 'none' : 'block';
@@ -788,7 +797,7 @@ function renderKonseling(searchQuery){
       <div class="entry-card-head">
         <div class="entry-avatar-row">
           <span class="avatar-ring" style="background:${colorFromString(k.Nama)}">${escapeHtml(initials(k.Nama))}</span>
-          <div><div class="entry-name">${escapeHtml(k.Nama||'-')}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')} · ${escapeHtml(k.Topik||'Konseling')}</div></div>
+          <div><div class="entry-name">${escapeHtml(konselingDisplayNis(k))}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')} · ${escapeHtml(k.Topik||'Konseling')}</div></div>
         </div>
         <div class="row-actions">
           <button class="icon-btn-sm" data-edit="konseling" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-pen"></i></button>
@@ -1480,6 +1489,14 @@ function semesterMonthRange(){
   return isGenap ? { startYM: `${y2}-01`, endYM: `${y2}-06` } : { startYM: `${y1}-07`, endYM: `${y1}-12` };
 }
 
+/* Untuk laporan Konseling, kolom "Nama" tetap berlabel "Nama" tapi ISInya
+   ditampilkan sebagai NIS siswa (permintaan: identitas di laporan konseling
+   pakai NIS, bukan nama, walau header tabel tetap "Nama"). Tipe laporan lain
+   tidak terpengaruh. */
+function reportCellValue(type, col, row){
+  if (type === 'konseling' && col === 'Nama') return konselingDisplayNis(row);
+  return row[col];
+}
 function filterByPeriode(rows, type){
   const periode = $('#reportPeriode').value;
   if (!periode) return rows;
@@ -1598,7 +1615,7 @@ $('#btnGenerateReport').addEventListener('click', () => {
     <table>
       <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
       <tbody>
-        ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(r[c] ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
+        ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(reportCellValue(type, c, r) ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
       </tbody>
     </table>
     <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
