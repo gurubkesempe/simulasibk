@@ -52,7 +52,7 @@ lama tidak ikut ter-upload ke GitHub (memang wajar, itu hidup terpisah di Apps S
 Editor kamu), jadi backend ini dibuat generik: dia otomatis membaca sheet yang sudah ada
 sesuai nama tab & header kolom yang dipakai aplikasi (Siswa, Absensi, Pelanggaran,
 Konseling, Kolaborasi) — **tidak menimpa data yang sudah ada**, hanya menambah kolom/sheet
-baru (misalnya "Kebiasaan") kalau belum ada.
+baru kalau belum ada.
 
 ### Cara pasang
 1. Buka Google Sheet database BK Digital kamu → **Extensions → Apps Script**.
@@ -96,7 +96,7 @@ segera diisi begitu deployment berhasil.
 
 ### a) Pencarian
 - Kotak pencarian di atas sekarang aktif di semua halaman (Siswa, Absensi, Pelanggaran,
-  Konseling, Kolaborasi, 7 Kebiasaan) — ketik untuk memfilter tabel/kartu yang sedang dibuka.
+  Konseling, Kolaborasi) — ketik untuk memfilter tabel/kartu yang sedang dibuka.
 - Ketik nama/NIS siswa dari halaman manapun → muncul dropdown hasil pencarian siswa.
   Klik salah satu hasil untuk langsung membuka **Laporan Individu** siswa itu (siap cetak).
 
@@ -110,17 +110,6 @@ segera diisi begitu deployment berhasil.
   ada, baik hasil input manual maupun import sebelumnya, **tidak akan pernah tertimpa**.
   Input manual lewat tombol "Tambah Siswa" tetap berfungsi seperti biasa dan bisa
   dipakai bergantian dengan import kapan saja.
-
-### c) Menu "7 Kebiasaan Anak Indonesia Hebat"
-- Menu baru di sidebar, mengikuti kolom pada formulir kertas yang kamu lampirkan:
-  Bangun Pagi, Beribadah (Subuh/Duhur/Ashar/Maghrib/Isya, Dhuha, Tadarus/Murajaah,
-  Lainnya), Berolahraga, Gemar Belajar, Makan Sehat dan Bergizi, Bermasyarakat,
-  Istirahat Cukup, plus Paraf Ortu, Paraf Guru, dan Catatan Guru.
-- Isi lewat tombol **Isi Formulir Harian**, lalu tampil sebagai kartu per siswa per hari.
-- Tombol cetak (ikon printer) di tiap kartu menampilkan formulir dalam layout mirip
-  formulir kertas aslinya, siap di-print/save as PDF.
-- Rekap kebiasaan juga otomatis muncul di **Laporan** (baik rekap per kelas maupun
-  laporan individu siswa).
 
 ## 5. Menjamin update kode tidak menghapus data
 
@@ -225,7 +214,7 @@ URL/token yang perlu mereka isi.
 - Nonaktifkan akun (ubah Status jadi "Nonaktif") kalau seorang guru pindah tugas —
   tidak perlu dihapus kalau masih mau menyimpan riwayatnya.
 - Backup Excel (`Unduh Backup`) **tidak pernah ikut membawa akun Guru/Password** —
-  hanya data Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, dan Kebiasaan.
+  hanya data Siswa, Absensi, Pelanggaran, Konseling, dan Kolaborasi.
 
 **Wajib:** tempel ulang `Code.gs` yang baru ke Apps Script Editor (bagian 1) lalu
 **Deploy → Manage deployments → Edit → Deploy** versi baru (deployment yang sama),

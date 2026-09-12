@@ -18,8 +18,8 @@ function escapeHtml(value){
     .replace(/'/g, '&#39;');
 }
 
-const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi','kebiasaan'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[], guru:[], konselor:[] };
+const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi'];
+const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], masterPelanggaran:[], guru:[], konselor:[] };
 
 /* URL Web App bawaan — diisi SEKALI oleh Admin BK saat pertama kali men-deploy
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
@@ -253,14 +253,6 @@ const DemoAdapter = {
       { ID:'KOL-1', Tanggal: ymd(today), SiswaID:'SIS-3', Nama:'Rizky Maulana', Kelas:'VIII-B', Jenis:'Pemanggilan Orang Tua', Tujuan:'Membahas kedisiplinan anak', Hasil:'Orang tua berkomitmen mendampingi di rumah', Petugas:'Bu Ratna, S.Pd' }
     ];
     this.write('kolaborasi', kolaborasi);
-    const kebiasaan = [
-      { ID:'HAB-1', Tanggal: ymd(today), SiswaID:'SIS-1', Nama:'Ahmad Fadillah', Kelas:'IX-A',
-        BangunPagiPukul:'05.00', IbadahSholat:'Subuh, Duhur, Ashar, Maghrib, Isya', IbadahDhuha:'Ya', IbadahTadarus:'Juz 5',
-        IbadahLainnya:'', OlahragaJenis:'Lari pagi', OlahragaDurasi:'20', BelajarMapel:'Matematika',
-        MakanMenu:'Nasi, sayur bayam, telur, buah', BermasyarakatKegiatan:'Kerja bakti lingkungan',
-        IstirahatPukul:'21.00', ParafOrtu:'Ya', ParafGuru:'', CatatanGuru:'' }
-    ];
-    this.write('kebiasaan', kebiasaan);
     const masterPelanggaran = [
       ['Terlambat masuk sekolah', 5, 'Ringan'],
       ['Tidak memakai atribut lengkap', 5, 'Ringan'],
@@ -388,7 +380,7 @@ function applySettingsFromServer(map){
 
 function populateClassFilters(){
   const classes = uniqueClasses();
-  const selectors = ['#filterKelasSiswa','#filterKelasAbsensi','#filterKelasPelanggaran','#filterKelasKonseling','#filterKelasKebiasaan','#reportKelas'];
+  const selectors = ['#filterKelasSiswa','#filterKelasAbsensi','#filterKelasPelanggaran','#filterKelasKonseling','#reportKelas'];
   selectors.forEach(sel => {
     const el = $(sel); if (!el) return;
     const current = el.value;
@@ -413,7 +405,7 @@ function goToPage(page){
   $(`#page-${page}`)?.classList.add('active');
   $all('.nav-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
   $all('.bn-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { dashboard:'Dashboard', siswa:'Data Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', kebiasaan:'7 Kebiasaan Anak Indonesia Hebat', laporan:'Laporan' };
+  const titles = { dashboard:'Dashboard', siswa:'Data Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', laporan:'Laporan' };
   $('#pageTitle').textContent = titles[page] || page;
   closeMoreSheet();
   hideSearchDropdown();
@@ -426,7 +418,6 @@ function renderCurrentPage(q){
   if (currentPage === 'pelanggaran') renderPelanggaran(q);
   if (currentPage === 'konseling') renderKonseling(q);
   if (currentPage === 'kolaborasi') renderKolaborasi(q);
-  if (currentPage === 'kebiasaan') renderKebiasaan(q);
 }
 
 $all('.nav-item[data-page]').forEach(n => n.addEventListener('click', e => { e.preventDefault(); goToPage(n.dataset.page); }));
@@ -444,7 +435,7 @@ $('#refreshBtn').addEventListener('click', loadAll);
 /* ---------------- PENCARIAN GLOBAL ----------------
    Ketik di kotak pencarian atas untuk:
    1) Memfilter tabel/kartu di halaman yang sedang dibuka (siswa, absensi,
-      pelanggaran, konseling, kolaborasi, kebiasaan), dan
+      pelanggaran, konseling, kolaborasi), dan
    2) Menampilkan dropdown hasil pencarian siswa lintas halaman — klik salah
       satu hasil untuk langsung membuka Laporan Individu siswa tersebut. */
 $('#globalSearch').addEventListener('input', e => {
@@ -944,107 +935,19 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#lightboxBackdrop').classList.contains('open')) closeImageLightbox();
 });
 
-/* ---------------- 7 KEBIASAAN ANAK INDONESIA HEBAT (card list) ---------------- */
-function habitDone(v){ return v && String(v).trim() && String(v).trim().toLowerCase() !== 'tidak'; }
-function renderKebiasaan(searchQuery){
-  const kelas = $('#filterKelasKebiasaan').value;
-  const tgl = $('#filterTglKebiasaan').value;
-  let rows = STATE.kebiasaan.filter(k => (!kelas || k.Kelas===kelas) && (!tgl || k.Tanggal===tgl));
-  if (searchQuery) rows = rows.filter(k => (k.Nama||'').toLowerCase().includes(searchQuery));
-  rows.sort((a,b)=> new Date(b.Tanggal)-new Date(a.Tanggal));
-  const list = $('#listKebiasaan');
-  $('#emptyKebiasaan').style.display = rows.length ? 'none' : 'block';
-
-  const habitDefs = [
-    { key:'BangunPagiPukul', label:'Bangun Pagi', icon:'fa-sun', display: v => v || '-' },
-    { key:'IbadahSholat', label:'Beribadah', icon:'fa-mosque', display: (v,k) => [v, habitDone(k.IbadahDhuha)?'Dhuha':'', k.IbadahTadarus?('Tadarus: '+k.IbadahTadarus):''].filter(Boolean).join(', ') || '-' },
-    { key:'OlahragaJenis', label:'Berolahraga', icon:'fa-person-running', display: (v,k) => v ? `${v}${k.OlahragaDurasi?` (${k.OlahragaDurasi} menit)`:''}` : '-' },
-    { key:'BelajarMapel', label:'Gemar Belajar', icon:'fa-book', display: v => v || '-' },
-    { key:'MakanMenu', label:'Makan Sehat & Bergizi', icon:'fa-utensils', display: v => v || '-' },
-    { key:'BermasyarakatKegiatan', label:'Bermasyarakat', icon:'fa-people-group', display: v => v || '-' },
-    { key:'IstirahatPukul', label:'Istirahat Cukup', icon:'fa-bed', display: v => v || '-' }
-  ];
-
-  list.innerHTML = rows.map(k => `
-    <div class="entry-card habit-card">
-      <div class="entry-card-head">
-        <div class="entry-avatar-row">
-          <span class="avatar-ring" style="background:${colorFromString(k.Nama)}">${escapeHtml(initials(k.Nama))}</span>
-          <div><div class="entry-name">${escapeHtml(k.Nama||'-')}</div><div class="entry-sub">${escapeHtml(k.Kelas||'-')} · ${fmtDate(k.Tanggal)}</div></div>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn-sm" data-print-habit="${escapeHtml(k.ID)}" title="Cetak formulir"><i class="fa-solid fa-print"></i></button>
-          <button class="icon-btn-sm" data-edit="kebiasaan" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-pen"></i></button>
-          <button class="icon-btn-sm danger" data-del="kebiasaan" data-id="${escapeHtml(k.ID)}"><i class="fa-solid fa-trash"></i></button>
-        </div>
-      </div>
-      <div class="habit-grid">
-        ${habitDefs.map(h => `<div class="habit-item"><i class="fa-solid ${h.icon}"></i><div><span class="habit-label">${h.label}</span><span class="habit-value">${escapeHtml(h.display(k[h.key], k))}</span></div></div>`).join('')}
-      </div>
-      <div class="entry-foot">
-        <span class="entry-sub">${habitDone(k.ParafOrtu)?'<i class="fa-solid fa-check" style="color:var(--success)"></i> Paraf Ortu':'<i class="fa-regular fa-circle" style="color:var(--ink-soft)"></i> Paraf Ortu'} &nbsp;&nbsp; ${habitDone(k.ParafGuru)?'<i class="fa-solid fa-check" style="color:var(--success)"></i> Paraf Guru':'<i class="fa-regular fa-circle" style="color:var(--ink-soft)"></i> Paraf Guru'}</span>
-      </div>
-      ${k.CatatanGuru ? `<div class="habit-note"><b>Catatan Guru:</b> ${escapeHtml(k.CatatanGuru)}</div>` : ''}
-    </div>`).join('');
-}
-$('#filterKelasKebiasaan').addEventListener('change', () => renderKebiasaan());
-$('#filterTglKebiasaan').addEventListener('change', () => renderKebiasaan());
-
-/* Cetak satu formulir kebiasaan meniru layout kertas "7 Kebiasaan Anak Indonesia Hebat" */
-function printKebiasaanForm(id){
-  const k = STATE.kebiasaan.find(o => String(o.ID)===String(id));
-  if (!k) return;
-  const row = (label, value) => `<tr><td class="hb-k">${escapeHtml(label)}</td><td class="hb-v">${escapeHtml(value) || '-'}</td></tr>`;
-  const html = `
-    <h2>7 Kebiasaan Anak Indonesia Hebat</h2>
-    <div class="report-head-line"><span>Nama: ${escapeHtml(k.Nama||'-')} &nbsp;|&nbsp; Kelas: ${escapeHtml(k.Kelas||'-')}</span><span>Hari, tanggal: ${fmtDate(k.Tanggal)}</span></div>
-    <table class="hb-table">
-      <tbody>
-        ${row('1. Bangun Pagi', 'Pukul: ' + (k.BangunPagiPukul||'-'))}
-        ${row('2. Beribadah', (k.IbadahSholat||'-') + (habitDone(k.IbadahDhuha)?', Dhuha':'') + (k.IbadahTadarus?', Tadarus/Murajaah: '+k.IbadahTadarus:'') + (k.IbadahLainnya?', Lainnya: '+k.IbadahLainnya:''))}
-        ${row('3. Berolahraga', 'Jenis: ' + (k.OlahragaJenis||'-') + ' — Durasi: ' + (k.OlahragaDurasi||'-'))}
-        ${row('4. Gemar Belajar', 'Mapel: ' + (k.BelajarMapel||'-'))}
-        ${row('5. Makan Sehat dan Bergizi', 'Menu: ' + (k.MakanMenu||'-'))}
-        ${row('6. Bermasyarakat', 'Kegiatan: ' + (k.BermasyarakatKegiatan||'-'))}
-        ${row('7. Istirahat Cukup', 'Pukul: ' + (k.IstirahatPukul||'-'))}
-      </tbody>
-    </table>
-    <table class="hb-table" style="margin-top:14px">
-      <tbody>
-        <tr>
-          <td class="hb-k" style="width:20%">Paraf Ortu</td>
-          <td class="hb-k" style="width:20%">Paraf Guru</td>
-          <td class="hb-k">Catatan Guru</td>
-        </tr>
-        <tr style="height:70px">
-          <td>${habitDone(k.ParafOrtu)?'✓':''}</td>
-          <td>${habitDone(k.ParafGuru)?'✓':''}</td>
-          <td>${escapeHtml(k.CatatanGuru||'')}</td>
-        </tr>
-      </tbody>
-    </table>`;
-  $('#reportPreview').innerHTML = html;
-  $('#reportPreviewCard').style.display = 'block';
-  goToPage('laporan');
-  $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
-  setTimeout(() => window.print(), 400);
-}
-
 /* ---------------- ROW ACTION DELEGATION (edit/delete) ---------------- */
 /* Konselor (Guru BK) sekarang boleh mengubah/menghapus bukan cuma Konseling,
    tapi juga Kolaborasi, Absensi, dan Pelanggaran — selaras dengan
    ROLE_WRITABLE_TYPES.konselor di backend. Pembatasan sesungguhnya (per
    kelas tanggung jawab) tetap ditegakkan di server; validasi di sini murni
    supaya tombol edit/delete tidak memunculkan form untuk tipe yang memang
-   tidak boleh diakses konselor sama sekali (mis. Data Siswa/Kebiasaan). */
+   tidak boleh diakses konselor sama sekali (mis. Data Siswa). */
 const KONSELOR_WRITABLE_TYPES_UI = ['konseling', 'kolaborasi', 'absensi', 'pelanggaran'];
 document.addEventListener('click', async (e) => {
   const editBtn = e.target.closest('[data-edit]');
   const delBtn = e.target.closest('[data-del]');
-  const printHabitBtn = e.target.closest('[data-print-habit]');
   const waBtn = e.target.closest('[data-wa]');
   if (waBtn){ openWaForAbsen(waBtn.dataset.wa); return; }
-  if (printHabitBtn){ printKebiasaanForm(printHabitBtn.dataset.printHabit); return; }
   if ((editBtn || delBtn) && USER_ROLE === 'konselor'){
     const t = (editBtn || delBtn).dataset.edit || (editBtn || delBtn).dataset.del;
     if (!KONSELOR_WRITABLE_TYPES_UI.includes(t)){
@@ -1130,27 +1033,6 @@ const FORM_CONFIG = {
       { key:'Hasil', label:'Hasil / Kesepakatan', type:'textarea', full:true },
       { key:'BuktiFoto', label:'Bukti Foto Home Visit', type:'photo-buktihomevisit', full:true }
     ]
-  },
-  kebiasaan: {
-    title: '7 Kebiasaan Anak Indonesia Hebat',
-    fields: [
-      { key:'Tanggal', label:'Hari, Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
-      { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
-      { key:'BangunPagiPukul', label:'1. Bangun Pagi — Pukul', type:'text', placeholder:'contoh: 05.00' },
-      { key:'IbadahSholat', label:'2. Beribadah — Sholat', type:'checkbox-group', options:['Subuh','Duhur','Ashar','Maghrib',"Isya'"], full:true },
-      { key:'IbadahDhuha', label:'Sholat Dhuha', type:'checkbox' },
-      { key:'IbadahTadarus', label:'Tadarus / Murajaah', type:'text', placeholder:'contoh: Juz 5 / Surah Al-Kahfi' },
-      { key:'IbadahLainnya', label:'Ibadah Lainnya', type:'text', full:true },
-      { key:'OlahragaJenis', label:'3. Berolahraga — Jenis', type:'text' },
-      { key:'OlahragaDurasi', label:'Durasi (menit)', type:'text' },
-      { key:'BelajarMapel', label:'4. Gemar Belajar — Mapel', type:'text', full:true },
-      { key:'MakanMenu', label:'5. Makan Sehat dan Bergizi — Menu', type:'textarea', full:true },
-      { key:'BermasyarakatKegiatan', label:'6. Bermasyarakat — Kegiatan', type:'textarea', full:true },
-      { key:'IstirahatPukul', label:'7. Istirahat Cukup — Pukul', type:'text' },
-      { key:'ParafOrtu', label:'Paraf Orang Tua (sudah diperiksa)', type:'checkbox' },
-      { key:'ParafGuru', label:'Paraf Guru (sudah diperiksa)', type:'checkbox' },
-      { key:'CatatanGuru', label:'Catatan Guru', type:'textarea', full:true }
-    ]
   }
 };
 
@@ -1228,17 +1110,6 @@ function openForm(type, id, prefill){
     }
     if (f.type === 'textarea'){
       return `<div class="${wrapClass}"><label>${f.label}</label><textarea name="${f.key}">${escapeHtml(val||'')}</textarea></div>`;
-    }
-    if (f.type === 'checkbox-group'){
-      const selected = (val||'').split(',').map(s=>s.trim());
-      return `<div class="${wrapClass}"><label>${f.label}</label>
-        <div class="checkbox-group">
-          ${f.options.map(o => `<label class="checkbox-pill"><input type="checkbox" name="${f.key}" value="${o}" ${selected.includes(o)?'checked':''}/> ${o}</label>`).join('')}
-        </div></div>`;
-    }
-    if (f.type === 'checkbox'){
-      const checked = habitDone(val);
-      return `<div class="${wrapClass} field--checkbox"><label class="checkbox-pill"><input type="checkbox" name="${f.key}" value="Ya" ${checked?'checked':''}/> ${f.label}</label></div>`;
     }
     return `<div class="${wrapClass}"><label>${f.label}</label><input type="${f.type}" name="${f.key}" value="${escapeHtml(val||'')}" ${f.placeholder?`placeholder="${escapeHtml(f.placeholder)}"`:''} ${f.required?'required':''} /></div>`;
   }).join('');
@@ -1562,7 +1433,6 @@ function openMasterPelanggaran(){
 }
 $('#btnAddKonseling').addEventListener('click', () => openForm('konseling'));
 $('#btnAddKolaborasi').addEventListener('click', () => openForm('kolaborasi'));
-$('#btnAddKebiasaan').addEventListener('click', () => openForm('kebiasaan'));
 
 /* ---------------- LAPORAN / CETAK PDF ---------------- */
 const REPORT_COLUMNS = {
@@ -1572,14 +1442,12 @@ const REPORT_COLUMNS = {
   konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut'],
   kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
   pemanggilan_ortu: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
-  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
-  kebiasaan: ['Tanggal','Nama','Kelas','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul']
+  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas']
 };
 const REPORT_TITLES = {
   siswa:'Data Siswa', absensi:'Rekap Absensi Siswa', pelanggaran:'Rekap Pelanggaran Siswa',
   konseling:'Rekap Sesi Konseling', kolaborasi:'Rekap Kolaborasi (Panggilan Ortu / Home Visit)',
-  pemanggilan_ortu:'Rekap Pemanggilan Orang Tua', home_visit:'Rekap Home Visit',
-  kebiasaan:'Rekap 7 Kebiasaan Anak Indonesia Hebat'
+  pemanggilan_ortu:'Rekap Pemanggilan Orang Tua', home_visit:'Rekap Home Visit'
 };
 
 $('#reportPeriode').addEventListener('change', () => {
@@ -1694,7 +1562,6 @@ $('#btnGenerateReport').addEventListener('click', () => {
     const pelanggaran = mine('pelanggaran');
     const konseling = mine('konseling');
     const kolaborasi = mine('kolaborasi');
-    const kebiasaan = mine('kebiasaan');
     const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
 
     const section = (title, cols, rows, emptyMsg) => `
@@ -1725,7 +1592,6 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${section('Rekap Pemanggilan Orang Tua', ['Tanggal','Tujuan','Hasil','Petugas'], kolaborasi.filter(r => r.Jenis === 'Pemanggilan Orang Tua'), 'Tidak ada catatan pemanggilan orang tua')}
       <h3 style="margin-top:22px">Rekap Home Visit</h3>
       ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
-      ${section('Rekap 7 Kebiasaan Anak Indonesia Hebat', ['Tanggal','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul'], kebiasaan, 'Belum ada catatan kebiasaan harian')}
       ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
     `;
     $('#reportPreview').innerHTML = html;
@@ -1827,8 +1693,8 @@ function buildKelasRecapHtml(type, rows){
       return [k, grp.length, totalPoin];
     });
   } else {
-    // konseling, kolaborasi, pemanggilan_ortu, home_visit, kebiasaan: cukup jumlah catatan per kelas
-    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', pemanggilan_ortu:'Jumlah Pemanggilan Orang Tua', home_visit:'Jumlah Home Visit', kebiasaan:'Jumlah Formulir Terisi' };
+    // konseling, kolaborasi, pemanggilan_ortu, home_visit: cukup jumlah catatan per kelas
+    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', pemanggilan_ortu:'Jumlah Pemanggilan Orang Tua', home_visit:'Jumlah Home Visit' };
     head = ['Kelas', labelMap[type] || 'Jumlah Data'];
     body = classes.map(k => {
       const grp = rows.filter(r => (r.Kelas||'-') === k);
@@ -2060,7 +1926,7 @@ $('#konselorPasswordInput').addEventListener('keydown', (e) => { if (e.key === '
    - Guru Mapel: menu dibatasi HANYA ke halaman Pelanggaran (perilaku lama,
      tidak berubah).
    - Konselor (Guru BK): menu tampil LENGKAP seperti Admin (Dashboard, Siswa,
-     Absensi, Pelanggaran, Konseling, Kolaborasi, Kebiasaan, Laporan) karena
+     Absensi, Pelanggaran, Konseling, Kolaborasi, Laporan) karena
      backend juga mengizinkan dia membaca semua data itu (lihat Code.gs).
      Yang tetap disembunyikan hanya tombol Pengaturan & Kelola Akun (Guru
      Mapel/Konselor), karena itu wilayah Admin. Pembatasan sesungguhnya untuk
@@ -2087,10 +1953,10 @@ function applyRoleUI(){
   /* Konselor sekarang boleh MENULIS ke Konseling, Kolaborasi, Absensi, dan
      Pelanggaran (lihat ROLE_WRITABLE_TYPES.konselor di Code.gs) — jadi tombol
      tambah untuk keempat itu TIDAK disembunyikan lagi. Yang tetap disembunyikan
-     hanya untuk tipe yang memang masih tertutup total buat Konselor (Data Siswa,
-     7 Kebiasaan) dan fitur admin-only (Absen Massal, Import Siswa) yang tetap
+     hanya untuk tipe yang memang masih tertutup total buat Konselor (Data Siswa)
+     dan fitur admin-only (Absen Massal, Import Siswa) yang tetap
      ditolak server siapa pun selain Admin. */
-  ['#btnAddSiswa','#btnImportSiswa','#btnBulkAbsensi','#btnAddKebiasaan']
+  ['#btnAddSiswa','#btnImportSiswa','#btnBulkAbsensi']
     .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
   const badge = $('#guruBadge');
   if (badge){
@@ -2142,10 +2008,10 @@ $('#logoutBtnMobile').addEventListener('click', () => { closeMoreSheet(); logout
 
 /* ---------------- BACKUP DATABASE (Excel, satu file semua tabel) ----------------
    Murni untuk jaga-jaga: unduh salinan semua data (Siswa, Absensi, Pelanggaran,
-   Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file .xlsx, satu tab per jenis
+   Konseling, Kolaborasi) jadi satu file .xlsx, satu tab per jenis
    data. Tidak mengubah data apapun di Sheet — cuma membaca STATE yang sedang
    dimuat lalu menuliskannya ke file baru di komputer pengguna. */
-const BACKUP_SHEET_NAMES = { siswa:'Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', kebiasaan:'Kebiasaan' };
+const BACKUP_SHEET_NAMES = { siswa:'Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi' };
 function downloadFullBackup(){
   if (!TYPES.some(t => STATE[t] && STATE[t].length)){
     toast('Belum ada data yang bisa di-backup. Muat ulang data terlebih dahulu.', 'error');
@@ -2256,7 +2122,7 @@ function openSettings(){
     </div>
     <div class="field full backup-box">
       <label>Backup Database</label>
-      <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi, 7 Kebiasaan) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
+      <p class="muted" style="margin:2px 0 10px">Unduh salinan semua data (Siswa, Absensi, Pelanggaran, Konseling, Kolaborasi) jadi satu file Excel — untuk jaga-jaga, tidak mengubah data apapun di Sheet.</p>
       <button class="btn btn-ghost" id="settingsBackupBtn" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Backup (Excel)</button>
     </div>
     <div class="modal-actions">

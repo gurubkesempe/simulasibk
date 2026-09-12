@@ -289,21 +289,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .checkbox-pill input{ width:15px; height:15px; accent-color:var(--primary); }
 .field--checkbox{ justify-content:flex-end; }
 
-/* ============ 7 KEBIASAAN HABIT CARDS ============ */
-.habit-card .habit-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; margin-top:4px; }
-.habit-item{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; }
-.habit-item i{ width:16px; margin-top:2px; color:var(--primary); flex-shrink:0; }
-.habit-label{ display:block; font-weight:700; color:var(--ink-soft); font-size:11px; text-transform:uppercase; letter-spacing:.02em; }
-.habit-value{ display:block; color:var(--ink); }
-.habit-note{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); font-size:13px; color:var(--ink-soft); }
-.habit-note b{ color:var(--ink); }
-@media (max-width: 560px){ .habit-card .habit-grid{ grid-template-columns:1fr; } }
-
-/* Formulir cetak 7 Kebiasaan (mirip formulir kertas) */
-.hb-table{ width:100%; border-collapse:collapse; margin-top:14px; }
-.hb-table td{ border:1px solid #ccc; padding:8px 10px; font-size:12.5px; vertical-align:top; }
-.hb-table .hb-k{ font-weight:700; width:32%; background:#f7f7f7; }
-
 /* ============ ABSEN MASSAL ============ */
 .bulk-list-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 0 8px; flex-wrap:wrap; }
 .bulk-siswa-list{ display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; margin-bottom:16px; }
