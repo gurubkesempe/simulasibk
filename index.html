@@ -25,6 +25,7 @@
     <button id="apiUrlSave" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk sebagai Admin/Guru BK</button>
     <p class="setup-note">URL &amp; token ini hanya disimpan di browser kamu (localStorage), tidak dikirim ke mana-mana kecuali ke Web App Google Apps Script milikmu sendiri. Lihat README untuk cara membuatnya.</p>
     <a href="#" id="showGuruLoginLink" class="setup-switch-link">Login sebagai Guru Mapel →</a>
+    <a href="#" id="showKonselorLoginLink" class="setup-switch-link">Login sebagai Guru BK (Konselor) →</a>
   </div>
 
   <!-- Login Guru Mapel: cukup Username & Password, tanpa URL/token sama sekali -->
@@ -38,6 +39,21 @@
     <button id="guruLoginBtn" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk</button>
     <p class="setup-note" id="guruLoginNote">Belum punya akun? Hubungi Guru BK di sekolahmu untuk didaftarkan.</p>
     <a href="#" id="showAdminLoginLink" class="setup-switch-link">← Masuk sebagai Admin/Guru BK</a>
+  </div>
+
+  <!-- Login Konselor (Guru BK per-kelas): Username & Password/PIN, hanya
+       melihat/mencatat menu Konseling untuk kelas tanggung jawabnya -->
+  <div class="setup-card hidden" id="konselorLoginCard">
+    <h1>BK Digital</h1>
+    <p class="setup-sub">Login Guru BK (Konselor)</p>
+    <label class="setup-label">Username</label>
+    <input id="konselorUsernameInput" type="text" autocomplete="username" placeholder="Username dari Admin/Guru BK" />
+    <label class="setup-label">Password / PIN</label>
+    <input id="konselorPasswordInput" type="password" autocomplete="current-password" placeholder="Password atau PIN dari Admin/Guru BK" />
+    <button id="konselorLoginBtn" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk</button>
+    <p class="setup-note">Setelah masuk, kamu hanya bisa melihat &amp; mencatat Konseling untuk siswa di kelas yang menjadi tanggung jawabmu. Belum punya akun? Hubungi Admin/Guru BK di sekolahmu.</p>
+    <a href="#" id="showGuruLoginFromKonselorLink" class="setup-switch-link">← Login sebagai Guru Mapel</a>
+    <a href="#" id="showAdminLoginLink2" class="setup-switch-link">← Masuk sebagai Admin/Guru BK</a>
   </div>
 
 </div>
@@ -62,6 +78,7 @@
     </nav>
     <div class="sidebar-foot">
       <button id="guruAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
+      <button id="konselorAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
       <button id="settingsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button id="logoutBtn" class="nav-item nav-item--ghost hidden"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>
@@ -341,6 +358,7 @@
       <a href="#kebiasaan" class="nav-item" data-page="kebiasaan"><i class="fa-solid fa-star"></i><span>7 Kebiasaan Anak Hebat</span></a>
       <a href="#laporan" class="nav-item" data-page="laporan"><i class="fa-solid fa-file-pdf"></i><span>Laporan</span></a>
       <button class="nav-item nav-item--ghost" id="guruAccountsBtnMobile"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
+      <button class="nav-item nav-item--ghost" id="konselorAccountsBtnMobile"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
       <button class="nav-item nav-item--ghost" id="settingsBtnMobile"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button class="nav-item nav-item--ghost hidden" id="logoutBtnMobile"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>

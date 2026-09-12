@@ -19,7 +19,7 @@ function escapeHtml(value){
 }
 
 const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi','kebiasaan'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[], guru:[] };
+const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], kebiasaan:[], masterPelanggaran:[], guru:[], konselor:[] };
 
 /* URL Web App bawaan — diisi SEKALI oleh Admin BK saat pertama kali men-deploy
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
@@ -29,11 +29,16 @@ const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwhmxc_JAmyi3SI
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
-/* Peran yang sedang login: 'admin' (Guru BK, akses penuh) atau 'guru'
-   (Guru Mapel, dibatasi ke menu Pelanggaran & kelasnya sendiri saja). */
+/* Peran yang sedang login: 'admin' (Guru BK utama, akses penuh), 'guru'
+   (Guru Mapel, dibatasi ke menu Pelanggaran & kelasnya sendiri saja), atau
+   'konselor' (Guru BK per-kelas, dibatasi ke menu Konseling & kelasnya
+   sendiri saja — supaya tiap Guru BK cuma melihat/mencatat konseling murid
+   asuhnya, bukan murid Guru BK lain). */
 let USER_ROLE = localStorage.getItem('bk_role') || 'admin';
 let GURU_NAMA = localStorage.getItem('bk_guru_nama') || '';
 let GURU_KELAS = JSON.parse(localStorage.getItem('bk_guru_kelas') || '[]');
+let KONSELOR_NAMA = localStorage.getItem('bk_konselor_nama') || '';
+let KONSELOR_KELAS = JSON.parse(localStorage.getItem('bk_konselor_kelas') || '[]');
 let currentPage = 'dashboard';
 let charts = {};
 
@@ -69,6 +74,14 @@ const RealAdapter = {
      API_TOKEN untuk request-request berikutnya. */
   async loginGuru(username, password){
     const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginGuru', username, password }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal login');
+    return json.data;
+  },
+  /* Login Konselor (Guru BK per-kelas): sama alurnya dengan loginGuru, hanya
+     beda action & sheet yang dibaca server (lihat Code.gs: loginKonselor). */
+  async loginKonselor(username, password){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginKonselor', username, password }) });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Gagal login');
     return json.data;
@@ -150,6 +163,7 @@ const DemoAdapter = {
     TYPES.forEach(t => out[t] = this.read(t));
     out.masterPelanggaran = this.read('masterPelanggaran');
     out.guru = this.read('guru');
+    out.konselor = this.read('konselor');
     out.pengaturan = await this.getSettings();
     return out;
   },
@@ -345,6 +359,7 @@ async function loadAll(){
     TYPES.forEach(t => STATE[t] = data[t] || []);
     STATE.masterPelanggaran = data.masterPelanggaran || [];
     STATE.guru = data.guru || [];
+    STATE.konselor = data.konselor || [];
     applySettingsFromServer(data.pengaturan || {});
     populateClassFilters();
     renderCurrentPage();
@@ -914,6 +929,13 @@ document.addEventListener('click', async (e) => {
   const waBtn = e.target.closest('[data-wa]');
   if (waBtn){ openWaForAbsen(waBtn.dataset.wa); return; }
   if (printHabitBtn){ printKebiasaanForm(printHabitBtn.dataset.printHabit); return; }
+  if ((editBtn || delBtn) && USER_ROLE === 'konselor'){
+    const t = (editBtn || delBtn).dataset.edit || (editBtn || delBtn).dataset.del;
+    if (t !== 'konseling'){
+      toast('Akun Guru BK (Konselor) hanya bisa mengubah/menghapus data Konseling.', 'error');
+      return;
+    }
+  }
   if (editBtn) openForm(editBtn.dataset.edit, editBtn.dataset.id);
   if (delBtn){
     const type = delBtn.dataset.del, id = delBtn.dataset.id;
@@ -975,7 +997,7 @@ const FORM_CONFIG = {
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
       { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Topik', label:'Topik', type:'text', required:true },
-      { key:'Konselor', label:'Konselor / Guru BK', type:'text' },
+      { key:'Konselor', label:'Konselor / Guru BK', type:'text', default: () => (USER_ROLE === 'konselor' ? KONSELOR_NAMA : '') },
       { key:'Masalah', label:'Uraian Masalah', type:'textarea', full:true },
       { key:'HasilKonseling', label:'Hasil Konseling', type:'textarea', full:true },
       { key:'TindakLanjut', label:'Rencana Tindak Lanjut', type:'textarea', full:true }
@@ -1731,29 +1753,51 @@ $('#apiUrlSave').addEventListener('click', () => {
   const tokenVal = $('#apiTokenInput').value.trim();
   if (!val){ toast('Masukkan URL Web App terlebih dahulu.', 'error'); return; }
   API_URL = val; API_TOKEN = tokenVal;
-  USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
+  USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = []; KONSELOR_NAMA = ''; KONSELOR_KELAS = [];
   adapter = RealAdapter;
   localStorage.setItem('bk_api_url', API_URL);
   localStorage.setItem('bk_api_token', API_TOKEN);
   localStorage.setItem('bk_role', 'admin');
   localStorage.removeItem('bk_guru_nama');
   localStorage.removeItem('bk_guru_kelas');
+  localStorage.removeItem('bk_konselor_nama');
+  localStorage.removeItem('bk_konselor_kelas');
   localStorage.removeItem('bk_demo_mode');
   enterApp();
 });
 
-/* ---------------- LOGIN GURU MAPEL ----------------
-   Guru mapel hanya mengisi Username & Password — URL Web App sudah
-   otomatis terisi (DEFAULT_API_URL yang di-bake admin, atau tersisa
-   dari sesi sebelumnya di browser yang sama). Tidak ada field URL/token
-   yang perlu mereka sentuh sama sekali. */
+/* ---------------- LOGIN GURU MAPEL & LOGIN KONSELOR (GURU BK) ----------------
+   Guru mapel / Konselor hanya mengisi Username & Password (atau PIN) — URL
+   Web App sudah otomatis terisi (DEFAULT_API_URL yang di-bake admin, atau
+   tersisa dari sesi sebelumnya di browser yang sama). Tidak ada field
+   URL/token yang perlu mereka sentuh sama sekali. Ada 3 kartu login yang
+   saling berpindah: Admin/Guru BK utama, Guru Mapel, dan Konselor. */
 $('#showGuruLoginLink').addEventListener('click', (e) => {
   e.preventDefault();
   $('#adminSetupCard').classList.add('hidden');
+  $('#konselorLoginCard').classList.add('hidden');
   $('#guruLoginCard').classList.remove('hidden');
 });
 $('#showAdminLoginLink').addEventListener('click', (e) => {
   e.preventDefault();
+  $('#guruLoginCard').classList.add('hidden');
+  $('#konselorLoginCard').classList.add('hidden');
+  $('#adminSetupCard').classList.remove('hidden');
+});
+$('#showKonselorLoginLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#adminSetupCard').classList.add('hidden');
+  $('#guruLoginCard').classList.add('hidden');
+  $('#konselorLoginCard').classList.remove('hidden');
+});
+$('#showGuruLoginFromKonselorLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#konselorLoginCard').classList.add('hidden');
+  $('#guruLoginCard').classList.remove('hidden');
+});
+$('#showAdminLoginLink2').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#konselorLoginCard').classList.add('hidden');
   $('#guruLoginCard').classList.add('hidden');
   $('#adminSetupCard').classList.remove('hidden');
 });
@@ -1792,42 +1836,105 @@ async function submitGuruLogin(){
 $('#guruLoginBtn').addEventListener('click', submitGuruLogin);
 $('#guruPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitGuruLogin(); });
 
-/* Tampilkan/sembunyikan menu sesuai peran yang login. Guru mapel hanya
-   melihat menu Pelanggaran; item nav lain, Pengaturan, dan tombol Kelola
-   Template disembunyikan. Ini murni tampilan — backend TETAP menolak akses
-   ke tipe data lain walau menu disembunyikan (lihat Code.gs). */
+/* Sama seperti submitGuruLogin(), tapi untuk akun Konselor (Guru BK per-kelas)
+   yang dibatasi ke menu Konseling saja. */
+async function submitKonselorLogin(){
+  const username = $('#konselorUsernameInput').value.trim();
+  const password = $('#konselorPasswordInput').value;
+  if (!username || !password){ toast('Username dan Password/PIN wajib diisi.', 'error'); return; }
+  if (!API_URL){
+    toast('Aplikasi belum tersambung ke server sekolah. Hubungi Admin/Guru BK.', 'error');
+    return;
+  }
+  const btn = $('#konselorLoginBtn');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Masuk...';
+  try{
+    const session = await RealAdapter.loginKonselor(username, password);
+    API_TOKEN = session.sessionToken;
+    USER_ROLE = 'konselor';
+    KONSELOR_NAMA = session.nama || '';
+    KONSELOR_KELAS = session.kelas || [];
+    adapter = RealAdapter;
+    localStorage.setItem('bk_api_url', API_URL);
+    localStorage.setItem('bk_api_token', API_TOKEN);
+    localStorage.setItem('bk_role', 'konselor');
+    localStorage.setItem('bk_konselor_nama', KONSELOR_NAMA);
+    localStorage.setItem('bk_konselor_kelas', JSON.stringify(KONSELOR_KELAS));
+    localStorage.removeItem('bk_demo_mode');
+    $('#konselorPasswordInput').value = '';
+    enterApp();
+  }catch(err){
+    toast(err.message, 'error');
+  }finally{
+    btn.disabled = false; btn.innerHTML = originalLabel;
+  }
+}
+$('#konselorLoginBtn').addEventListener('click', submitKonselorLogin);
+$('#konselorPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitKonselorLogin(); });
+
+/* Tampilkan/sembunyikan menu sesuai peran yang login.
+   - Guru Mapel: menu dibatasi HANYA ke halaman Pelanggaran (perilaku lama,
+     tidak berubah).
+   - Konselor (Guru BK): menu tampil LENGKAP seperti Admin (Dashboard, Siswa,
+     Absensi, Pelanggaran, Konseling, Kolaborasi, Kebiasaan, Laporan) karena
+     backend juga mengizinkan dia membaca semua data itu (lihat Code.gs).
+     Yang tetap disembunyikan hanya tombol Pengaturan & Kelola Akun (Guru
+     Mapel/Konselor), karena itu wilayah Admin. Pembatasan sesungguhnya untuk
+     Konselor ada di data Konseling itu sendiri (server hanya mengirim &
+     menerima data Konseling untuk kelas tanggung jawabnya — lihat Code.gs),
+     bukan di penyembunyian menu.
+   Ini murni tampilan — backend TETAP menolak akses ke tipe/kelas data yang
+   tidak diizinkan walau menu terlihat (lihat Code.gs). */
 function applyRoleUI(){
   const isGuru = USER_ROLE === 'guru';
+  const isKonselor = USER_ROLE === 'konselor';
   $all('.nav-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
   $all('.bn-item[data-page]').forEach(n => n.classList.toggle('hidden', isGuru && n.dataset.page !== 'pelanggaran'));
-  $('#settingsBtn').classList.toggle('hidden', isGuru);
-  $('#settingsBtnMobile').classList.toggle('hidden', isGuru);
-  $('#guruAccountsBtn').classList.toggle('hidden', isGuru);
-  $('#guruAccountsBtnMobile').classList.toggle('hidden', isGuru);
-  $('#logoutBtn').classList.toggle('hidden', !isGuru);
-  $('#logoutBtnMobile').classList.toggle('hidden', !isGuru);
+  $('#settingsBtn').classList.toggle('hidden', isGuru || isKonselor);
+  $('#settingsBtnMobile').classList.toggle('hidden', isGuru || isKonselor);
+  $('#guruAccountsBtn').classList.toggle('hidden', isGuru || isKonselor);
+  $('#guruAccountsBtnMobile').classList.toggle('hidden', isGuru || isKonselor);
+  $('#konselorAccountsBtn').classList.toggle('hidden', isGuru || isKonselor);
+  $('#konselorAccountsBtnMobile').classList.toggle('hidden', isGuru || isKonselor);
+  $('#logoutBtn').classList.toggle('hidden', !(isGuru || isKonselor));
+  $('#logoutBtnMobile').classList.toggle('hidden', !(isGuru || isKonselor));
   const mplBtn = $('#btnMasterPelanggaran');
-  if (mplBtn) mplBtn.classList.toggle('hidden', isGuru);
+  if (mplBtn) mplBtn.classList.toggle('hidden', isGuru || isKonselor);
+  /* Konselor cuma boleh MENULIS ke Konseling (server menolak selain itu -
+     lihat Code.gs) — sembunyikan tombol tambah/impor data lain supaya menu
+     yang tampil lengkap itu jadi read-only yang jelas, bukan tombol yang
+     ujung-ujungnya gagal dengan pesan error. */
+  ['#btnAddSiswa','#btnImportSiswa','#btnAddAbsensi','#btnBulkAbsensi','#btnAddPelanggaran','#btnAddKolaborasi','#btnAddKebiasaan']
+    .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
   const badge = $('#guruBadge');
   if (badge){
-    badge.classList.toggle('hidden', !isGuru);
-    badge.textContent = isGuru ? `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ' · Semua Kelas'}` : '';
+    badge.classList.toggle('hidden', !(isGuru || isKonselor));
+    if (isGuru) badge.textContent = `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ' · Semua Kelas'}`;
+    else if (isKonselor) badge.textContent = `${KONSELOR_NAMA}${KONSELOR_KELAS.length ? ' · Konseling: ' + KONSELOR_KELAS.join(', ') : ' · Konseling: Semua Kelas'}`;
+    else badge.textContent = '';
   }
   if (isGuru) goToPage('pelanggaran');
+  else if (isKonselor) goToPage('konseling');
 }
 
 function logout(){
-  API_TOKEN = ''; USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = [];
+  API_TOKEN = ''; USER_ROLE = 'admin'; GURU_NAMA = ''; GURU_KELAS = []; KONSELOR_NAMA = ''; KONSELOR_KELAS = [];
   localStorage.removeItem('bk_api_token');
   localStorage.removeItem('bk_role');
   localStorage.removeItem('bk_guru_nama');
   localStorage.removeItem('bk_guru_kelas');
+  localStorage.removeItem('bk_konselor_nama');
+  localStorage.removeItem('bk_konselor_kelas');
   $('#app').classList.add('hidden');
   $('#setupScreen').classList.remove('hidden');
   $('#adminSetupCard').classList.add('hidden');
+  $('#konselorLoginCard').classList.add('hidden');
   $('#guruLoginCard').classList.remove('hidden');
   $('#guruUsernameInput').value = '';
   $('#guruPasswordInput').value = '';
+  $('#konselorUsernameInput').value = '';
+  $('#konselorPasswordInput').value = '';
 }
 $('#logoutBtn').addEventListener('click', logout);
 $('#logoutBtnMobile').addEventListener('click', () => { closeMoreSheet(); logout(); });
@@ -2044,6 +2151,8 @@ $('#settingsBtn').addEventListener('click', openSettings);
 $('#settingsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openSettings(); });
 $('#guruAccountsBtn').addEventListener('click', () => openGuruAccounts());
 $('#guruAccountsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openGuruAccounts(); });
+$('#konselorAccountsBtn').addEventListener('click', () => openKonselorAccounts());
+$('#konselorAccountsBtnMobile').addEventListener('click', () => { closeMoreSheet(); openKonselorAccounts(); });
 
 /* ---------------- KELOLA AKUN GURU MAPEL ----------------
    Admin/Guru BK menambah, mengedit, dan menghapus akun login guru mapel
@@ -2235,6 +2344,211 @@ function openGuruAccounts(){
       STATE.guru = batch.guru || [];
       renderList();
       toast(`Import selesai: ${result.added} akun guru baru ditambahkan, ${result.skipped} dilewati (Username sudah ada).`, 'success');
+    }catch(err){
+      toast('Gagal mengimpor file: ' + err.message, 'error');
+    }finally{
+      showLoading(false);
+      e.target.value = '';
+    }
+  });
+
+  openModal();
+}
+
+/* ---------------- KELOLA AKUN KONSELOR (GURU BK PER-KELAS) ----------------
+   Sama persis polanya dengan openGuruAccounts(), tapi untuk sheet "Konselor"
+   dan menu Konseling: setiap akun di sini hanya bisa login (tanpa perlu tahu
+   URL Web App/token) dan hanya melihat & mencatat KONSELING untuk kelas yang
+   kamu tulis di sini — cocok dipakai supaya masing-masing Guru BK di sekolah
+   yang sama hanya mengelola laporan konseling murid asuhnya sendiri.
+   "Password" di sini bisa diisi PIN pendek (mis. 4-6 digit) kalau mau lebih
+   simpel buat Guru BK — nilainya tetap disimpan sebagai teks di sheet, jadi
+   bebas dipilih Admin selama mudah diingat & tidak mudah ditebak orang lain. */
+function openKonselorAccounts(){
+  $('#modalTitle').textContent = 'Kelola Akun Guru BK (Konselor)';
+  let editingId = null;
+
+  $('#modalBody').innerHTML = `
+    <p class="muted" style="margin:0 0 14px">Setiap akun di bawah bisa login (tanpa perlu tahu URL Web App/token) dan hanya melihat &amp; mencatat <b>Konseling</b> untuk siswa di kelas yang kamu tulis di sini. Password bisa diisi PIN pendek supaya mudah diingat.</p>
+    <form id="konselorAccountForm">
+      <div class="form-grid">
+        <div class="field"><label>Nama Guru BK</label>
+          <input type="text" id="kaNama" placeholder="Contoh: Ratna Wijaya, S.Pd" required />
+        </div>
+        <div class="field"><label>Username</label>
+          <input type="text" id="kaUsername" placeholder="Contoh: ratna.wijaya" required autocomplete="off" />
+        </div>
+        <div class="field"><label>Password / PIN</label>
+          <input type="text" id="kaPassword" placeholder="${'Isi/ganti password atau PIN'}" />
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="kaStatus">
+            <option value="Aktif">Aktif</option>
+            <option value="Nonaktif">Nonaktif</option>
+          </select>
+        </div>
+        <div class="field full"><label>Kelas Tanggung Jawab</label>
+          <input type="text" id="kaKelas" placeholder="Contoh: VII-A, VII-B (pisahkan dengan koma) — kosongkan untuk akses ke SEMUA kelas" />
+        </div>
+      </div>
+      <p class="muted" style="margin:-8px 0 14px">Kosongkan kolom Kelas kalau Guru BK ini boleh mencatat konseling untuk semua kelas, bukan hanya kelas tertentu.</p>
+      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:18px">
+        <button type="submit" class="btn btn-primary" id="kaSubmitBtn"><i class="fa-solid fa-plus"></i> Tambah Akun</button>
+        <button type="button" class="btn btn-ghost hidden" id="kaCancelEditBtn">Batal Edit</button>
+      </div>
+    </form>
+    <div class="bulk-siswa-list" id="kaList" style="max-height:280px"></div>
+    <div class="field full backup-box" style="margin-top:14px">
+      <label>Import Banyak Akun Sekaligus dari Excel</label>
+      <p class="muted" style="margin:2px 0 10px">Unduh template, isi daftar Guru BK di Excel, lalu upload lagi. Akun yang Username-nya sudah ada akan dilewati (tidak menimpa password/PIN yang sudah ada).</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn btn-ghost" id="btnDownloadKonselorTemplate" type="button"><i class="fa-solid fa-file-arrow-down"></i> Unduh Template</button>
+        <button class="btn btn-ghost" id="btnImportKonselor" type="button"><i class="fa-solid fa-file-arrow-up"></i> Import dari Excel</button>
+        <input type="file" id="importKonselorFile" accept=".xlsx,.xls,.csv" class="hidden" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="kaCloseBtn">Tutup</button>
+    </div>`;
+
+  function renderList(){
+    const list = $('#kaList');
+    const rows = STATE.konselor.slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
+    if (!rows.length){
+      list.innerHTML = `<p class="muted" style="padding:8px">Belum ada akun Guru BK (Konselor). Tambahkan lewat form di atas.</p>`;
+      return;
+    }
+    list.innerHTML = rows.map(k => `
+      <div class="bulk-item mpl-item">
+        <span class="mpl-info"><b>${escapeHtml(k.Nama||'-')}</b> <span class="muted">· @${escapeHtml(k.Username||'-')} · ${k.Kelas ? escapeHtml(k.Kelas) : 'Semua Kelas'} · ${escapeHtml(k.Status||'Aktif')}</span></span>
+        <span class="search-dd-actions">
+          <button type="button" class="icon-btn-sm" data-ka-edit="${escapeHtml(k.ID)}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" class="icon-btn-sm danger" data-ka-del="${escapeHtml(k.ID)}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </span>
+      </div>`).join('');
+  }
+  renderList();
+
+  $('#kaList').addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-ka-edit]');
+    const delBtn = e.target.closest('[data-ka-del]');
+    if (editBtn){
+      const k = STATE.konselor.find(o => String(o.ID)===String(editBtn.dataset.kaEdit));
+      if (!k) return;
+      editingId = k.ID;
+      $('#kaNama').value = k.Nama || '';
+      $('#kaUsername').value = k.Username || '';
+      $('#kaPassword').value = '';
+      $('#kaPassword').placeholder = 'Kosongkan jika tidak ingin mengubah password/PIN';
+      $('#kaStatus').value = k.Status || 'Aktif';
+      $('#kaKelas').value = k.Kelas || '';
+      $('#kaSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> Update Akun';
+      $('#kaCancelEditBtn').classList.remove('hidden');
+      $('#kaNama').focus();
+      return;
+    }
+    if (delBtn){
+      if (!confirm('Hapus akun Guru BK (Konselor) ini? Guru BK yang bersangkutan tidak akan bisa login lagi.')) return;
+      const id = delBtn.dataset.kaDel;
+      try{
+        await adapter.delete('konselor', id);
+        STATE.konselor = STATE.konselor.filter(o => String(o.ID)!==String(id));
+        renderList();
+        toast('Akun Guru BK dihapus.', 'success');
+      }catch(err){
+        toast(err.message, 'error');
+      }
+    }
+  });
+
+  $('#kaCancelEditBtn').addEventListener('click', () => {
+    editingId = null;
+    $('#konselorAccountForm').reset();
+    $('#kaPassword').placeholder = 'Isi/ganti password atau PIN';
+    $('#kaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
+    $('#kaCancelEditBtn').classList.add('hidden');
+  });
+
+  $('#konselorAccountForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nama = $('#kaNama').value.trim();
+    const username = $('#kaUsername').value.trim();
+    const password = $('#kaPassword').value;
+    const status = $('#kaStatus').value;
+    const kelas = $('#kaKelas').value.trim();
+    if (!nama || !username){ toast('Nama dan Username wajib diisi.', 'error'); return; }
+    if (!editingId && !password){ toast('Password/PIN wajib diisi untuk akun baru.', 'error'); return; }
+    const btn = $('#kaSubmitBtn');
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
+    try{
+      const data = { Nama: nama, Username: username, Status: status, Kelas: kelas };
+      if (password) data.Password = password;
+      if (editingId){
+        const updated = await adapter.update('konselor', editingId, data);
+        const idx = STATE.konselor.findIndex(o => String(o.ID)===String(editingId));
+        if (idx > -1) STATE.konselor[idx] = { ...STATE.konselor[idx], ...updated, ...data, ID: editingId };
+        toast('Akun Guru BK diperbarui.', 'success');
+      } else {
+        const created = await adapter.create('konselor', data);
+        STATE.konselor.push({ ...data, ...created });
+        toast('Akun Guru BK ditambahkan.', 'success');
+      }
+      editingId = null;
+      $('#konselorAccountForm').reset();
+      $('#kaPassword').placeholder = 'Isi/ganti password atau PIN';
+      $('#kaSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> Tambah Akun';
+      $('#kaCancelEditBtn').classList.add('hidden');
+      renderList();
+    }catch(err){
+      toast(err.message, 'error');
+    }finally{
+      btn.disabled = false; btn.innerHTML = originalLabel;
+    }
+  });
+
+  $('#kaCloseBtn').addEventListener('click', closeModal);
+
+  /* ---- Import banyak akun Konselor sekaligus dari Excel ----
+     Kolom Kelas boleh dikosongkan di template -> Guru BK itu otomatis dapat
+     akses ke SEMUA kelas. Username yang sudah ada di database DILEWATI
+     (tidak menimpa password/PIN lama), sama seperti prinsip import akun
+     Guru Mapel. */
+  const KONSELOR_TEMPLATE_COLUMNS = ['Nama','Username','Password','Kelas','Status'];
+  function downloadKonselorTemplate(){
+    const contoh = { Nama:'Ratna Wijaya, S.Pd', Username:'ratna.wijaya', Password:'123456', Kelas:'VIII-A, VIII-B', Status:'Aktif' };
+    const contoh2 = { Nama:'Andi Saputra, S.Pd', Username:'andi.saputra', Password:'654321', Kelas:'', Status:'Aktif' };
+    const ws = XLSX.utils.json_to_sheet([contoh, contoh2], { header: KONSELOR_TEMPLATE_COLUMNS });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Konselor');
+    XLSX.writeFile(wb, 'Template_Import_AkunKonselor_BKDigital.xlsx');
+  }
+  $('#btnDownloadKonselorTemplate').addEventListener('click', downloadKonselorTemplate);
+
+  $('#btnImportKonselor').addEventListener('click', () => $('#importKonselorFile').click());
+  $('#importKonselorFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    showLoading(true);
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+      const cleaned = rows
+        .map(r => {
+          const o = {};
+          KONSELOR_TEMPLATE_COLUMNS.forEach(c => { o[c] = (r[c] !== undefined ? String(r[c]).trim() : ''); });
+          if (!o.Status) o.Status = 'Aktif';
+          return o;
+        })
+        .filter(r => r.Nama && r.Username && r.Password); // baris tanpa Nama/Username/Password diabaikan
+      if (!cleaned.length){ toast('Tidak ada baris valid (butuh minimal kolom Nama, Username & Password).', 'error'); return; }
+      const result = await adapter.importBulk('konselor', cleaned, 'Username');
+      const batch = await adapter.getAllBatch();
+      STATE.konselor = batch.konselor || [];
+      renderList();
+      toast(`Import selesai: ${result.added} akun Guru BK baru ditambahkan, ${result.skipped} dilewati (Username sudah ada).`, 'success');
     }catch(err){
       toast('Gagal mengimpor file: ' + err.message, 'error');
     }finally{
