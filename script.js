@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzyqRxh7csRXcs5u7rq3ZN0J_ZJN-ooqKLqbDZSdMYjjLl7oYENMsWi-sVCBA3NlauH/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxG90u_L1DGe-4hG4UNgh6iefulE1iorYwgU-mVxXb4lwzWcxHMUA-_FKnjwXb3cAsA/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -2049,8 +2049,12 @@ function applyRoleUI(){
   $('#guruAccountsBtnMobile').classList.toggle('hidden', isGuru || isKonselor);
   $('#konselorAccountsBtn').classList.toggle('hidden', isGuru || isKonselor);
   $('#konselorAccountsBtnMobile').classList.toggle('hidden', isGuru || isKonselor);
-  $('#logoutBtn').classList.toggle('hidden', !(isGuru || isKonselor));
-  $('#logoutBtnMobile').classList.toggle('hidden', !(isGuru || isKonselor));
+  /* Tombol "Keluar" ditampilkan untuk SEMUA peran (Admin, Guru Mapel, maupun
+     Konselor) — sebelumnya hanya tampil untuk Guru Mapel/Konselor, sehingga
+     Admin yang sesi login-nya otomatis tersimpan (lihat init() di bawah) tidak
+     punya cara untuk keluar dan kembali ke layar login awal lewat tampilan. */
+  $('#logoutBtn').classList.remove('hidden');
+  $('#logoutBtnMobile').classList.remove('hidden');
   const mplBtn = $('#btnMasterPelanggaran');
   if (mplBtn) mplBtn.classList.toggle('hidden', isGuru || isKonselor);
   /* Konselor sekarang boleh MENULIS ke Konseling, Kolaborasi, Absensi, dan
@@ -2063,10 +2067,10 @@ function applyRoleUI(){
     .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
   const badge = $('#guruBadge');
   if (badge){
-    badge.classList.toggle('hidden', !(isGuru || isKonselor));
+    badge.classList.toggle('hidden', false);
     if (isGuru) badge.textContent = `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ' · Semua Kelas'}`;
     else if (isKonselor) badge.textContent = `${KONSELOR_NAMA}${KONSELOR_KELAS.length ? ' · Konseling: ' + KONSELOR_KELAS.join(', ') : ' · Konseling: Semua Kelas'}`;
-    else badge.textContent = '';
+    else badge.textContent = 'Admin BK';
   }
   if (isGuru) goToPage('pelanggaran');
   else if (isKonselor) goToPage('konseling');
@@ -2082,13 +2086,21 @@ function logout(){
   localStorage.removeItem('bk_konselor_kelas');
   $('#app').classList.add('hidden');
   $('#setupScreen').classList.remove('hidden');
-  $('#adminSetupCard').classList.add('hidden');
+  // Kembali ke kartu login yang sama seperti pengunjung baru akan lihat (lihat
+  // init() di bawah): kalau URL Web App sudah ter-bake (DEFAULT_API_URL),
+  // tampilkan dulu form Guru Mapel; kalau tidak, tampilkan kartu Admin/Guru BK
+  // utama. Ini juga berlaku saat Admin sendiri yang menekan "Keluar".
+  $('#adminSetupCard').classList.toggle('hidden', !!DEFAULT_API_URL);
+  $('#guruLoginCard').classList.toggle('hidden', !DEFAULT_API_URL);
   $('#konselorLoginCard').classList.add('hidden');
-  $('#guruLoginCard').classList.remove('hidden');
   $('#guruUsernameInput').value = '';
   $('#guruPasswordInput').value = '';
   $('#konselorUsernameInput').value = '';
   $('#konselorPasswordInput').value = '';
+  // Kosongkan ACCESS_TOKEN yang sempat terisi di kartu Admin supaya tidak
+  // tertinggal ter-prefill di layar login untuk pengguna berikutnya di
+  // perangkat/browser yang sama.
+  $('#apiTokenInput').value = '';
 }
 $('#logoutBtn').addEventListener('click', logout);
 $('#logoutBtnMobile').addEventListener('click', () => { closeMoreSheet(); logout(); });
