@@ -230,3 +230,20 @@ URL/token yang perlu mereka isi.
 **Wajib:** tempel ulang `Code.gs` yang baru ke Apps Script Editor (bagian 1) lalu
 **Deploy → Manage deployments → Edit → Deploy** versi baru (deployment yang sama),
 baru kemudian ganti `index.html`, `script.js`, `style.css` di GitHub.
+
+## 8. Laporan Pemanggilan Orang Tua & Home Visit dipisah + foto bisa diperbesar
+
+- Di halaman **Laporan**, "Rekap Kolaborasi" sekarang dipecah jadi dua pilihan
+  terpisah: **Rekap Pemanggilan Orang Tua** dan **Rekap Home Visit** — begitu
+  juga di **Laporan Individu Siswa**, keduanya tampil sebagai dua bagian
+  terpisah, bukan digabung seperti sebelumnya.
+- Khusus laporan **Home Visit**, foto bukti kunjungan ikut ditampilkan di
+  laporan (bukan cuma di kartu Kolaborasi), jadi siap dicetak/PDF lengkap
+  dengan buktinya.
+- Foto (di kartu Kolaborasi maupun di Laporan) sekarang **tidak lagi buka tab
+  baru** kalau diklik — muncul jendela pratinjau dengan tombol **perbesar /
+  perkecil** (juga bisa scroll mouse untuk zoom, klik foto untuk toggle
+  zoom, atau tombol Reset/X untuk menutup).
+
+Ini murni perubahan frontend (`index.html`, `script.js`, `style.css`) — tidak
+perlu update `Code.gs` untuk bagian ini.

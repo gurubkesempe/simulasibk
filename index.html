@@ -288,7 +288,8 @@
                 <option value="absensi">Rekap Absensi</option>
                 <option value="pelanggaran">Rekap Pelanggaran</option>
                 <option value="konseling">Rekap Konseling</option>
-                <option value="kolaborasi">Rekap Kolaborasi</option>
+                <option value="pemanggilan_ortu">Rekap Pemanggilan Orang Tua</option>
+                <option value="home_visit">Rekap Home Visit</option>
                 <option value="kebiasaan">Rekap 7 Kebiasaan Anak Indonesia Hebat</option>
                 <option value="individu">Laporan Per Siswa (Individu)</option>
               </select>
@@ -380,6 +381,19 @@
 
 <!-- ============ TOAST ============ -->
 <div class="toast" id="toast"></div>
+
+<!-- ============ IMAGE LIGHTBOX (perbesar foto, tidak buka tab baru) ============ -->
+<div class="lightbox-backdrop" id="lightboxBackdrop">
+  <div class="lightbox-toolbar">
+    <button type="button" id="lightboxZoomOut" title="Perkecil"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+    <button type="button" id="lightboxZoomIn" title="Perbesar"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+    <button type="button" id="lightboxReset" title="Reset ukuran"><i class="fa-solid fa-arrows-rotate"></i></button>
+    <button type="button" id="lightboxClose" title="Tutup"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="lightbox-stage" id="lightboxStage">
+    <img id="lightboxImg" src="" alt="Bukti foto" />
+  </div>
+</div>
 
 <!-- ============ LOADING OVERLAY ============ -->
 <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>

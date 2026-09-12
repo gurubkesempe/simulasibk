@@ -890,12 +890,59 @@ function renderKolaborasi(searchQuery){
         <p><span class="badge badge--info">${escapeHtml(k.Jenis||'-')}</span></p>
         <p style="margin-top:8px"><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.Hasil||'-')}</p>
-        ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><a href="${k.BuktiFoto}" target="_blank" rel="noopener" title="Lihat foto ukuran penuh"><img src="${k.BuktiFoto}" alt="Bukti Home Visit" class="bukti-foto-thumb" /></a></p>` : ''}
+        ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><img src="${k.BuktiFoto}" alt="Bukti Home Visit" class="bukti-foto-thumb" data-lightbox-id="${escapeHtml(k.ID)}" title="Klik untuk perbesar" /></p>` : ''}
       </div>
       <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Petugas||'')}</span></div>
     </div>`).join('');
 }
 $('#filterJenisKolaborasi').addEventListener('change', renderKolaborasi);
+
+/* ---------------- IMAGE LIGHTBOX (perbesar foto bukti, tidak buka tab baru) ----------------
+   Dipakai untuk foto Bukti Home Visit — baik di kartu Kolaborasi maupun di
+   halaman Laporan. Klik thumbnail untuk membuka, scroll/tombol untuk
+   zoom in-out, klik area gelap / tombol X / Esc untuk menutup. */
+let lightboxScale = 1;
+const LIGHTBOX_MIN = 1, LIGHTBOX_MAX = 4, LIGHTBOX_STEP = 0.5;
+function openImageLightbox(src){
+  if (!src) return;
+  $('#lightboxImg').src = src;
+  setLightboxScale(1);
+  $('#lightboxBackdrop').classList.add('open');
+}
+function closeImageLightbox(){
+  $('#lightboxBackdrop').classList.remove('open');
+  $('#lightboxImg').src = '';
+}
+function setLightboxScale(scale){
+  lightboxScale = Math.min(LIGHTBOX_MAX, Math.max(LIGHTBOX_MIN, scale));
+  const img = $('#lightboxImg');
+  img.style.transform = `scale(${lightboxScale})`;
+  img.classList.toggle('zoomed', lightboxScale > 1);
+}
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('[data-lightbox-id]');
+  if (trigger){
+    const k = STATE.kolaborasi.find(o => String(o.ID) === String(trigger.dataset.lightboxId));
+    if (k && k.BuktiFoto) openImageLightbox(k.BuktiFoto);
+    return;
+  }
+  const trigger2 = e.target.closest('[data-lightbox-src]');
+  if (trigger2){ openImageLightbox(trigger2.dataset.lightboxSrc); }
+});
+$('#lightboxImg').addEventListener('click', () => setLightboxScale(lightboxScale > 1 ? 1 : 2));
+$('#lightboxZoomIn').addEventListener('click', () => setLightboxScale(lightboxScale + LIGHTBOX_STEP));
+$('#lightboxZoomOut').addEventListener('click', () => setLightboxScale(lightboxScale - LIGHTBOX_STEP));
+$('#lightboxReset').addEventListener('click', () => setLightboxScale(1));
+$('#lightboxClose').addEventListener('click', closeImageLightbox);
+$('#lightboxBackdrop').addEventListener('click', e => { if (e.target.id === 'lightboxBackdrop') closeImageLightbox(); });
+$('#lightboxBackdrop').addEventListener('wheel', e => {
+  if (!$('#lightboxBackdrop').classList.contains('open')) return;
+  e.preventDefault();
+  setLightboxScale(lightboxScale + (e.deltaY < 0 ? LIGHTBOX_STEP : -LIGHTBOX_STEP));
+}, { passive:false });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#lightboxBackdrop').classList.contains('open')) closeImageLightbox();
+});
 
 /* ---------------- 7 KEBIASAAN ANAK INDONESIA HEBAT (card list) ---------------- */
 function habitDone(v){ return v && String(v).trim() && String(v).trim().toLowerCase() !== 'tidak'; }
@@ -1524,11 +1571,14 @@ const REPORT_COLUMNS = {
   pelanggaran: ['Tanggal','Nama','Kelas','JenisPelanggaran','Poin','Penanganan'],
   konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut'],
   kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
+  pemanggilan_ortu: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
+  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
   kebiasaan: ['Tanggal','Nama','Kelas','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul']
 };
 const REPORT_TITLES = {
   siswa:'Data Siswa', absensi:'Rekap Absensi Siswa', pelanggaran:'Rekap Pelanggaran Siswa',
   konseling:'Rekap Sesi Konseling', kolaborasi:'Rekap Kolaborasi (Panggilan Ortu / Home Visit)',
+  pemanggilan_ortu:'Rekap Pemanggilan Orang Tua', home_visit:'Rekap Home Visit',
   kebiasaan:'Rekap 7 Kebiasaan Anak Indonesia Hebat'
 };
 
@@ -1672,7 +1722,9 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${buildReportSummaryHtml('pelanggaran', pelanggaran)}
       ${section('Rekap Pelanggaran', ['Tanggal','JenisPelanggaran','Poin','Penanganan'], pelanggaran, 'Tidak ada catatan pelanggaran')}
       ${section('Rekap Konseling', ['Tanggal','Topik','HasilKonseling','TindakLanjut'], konseling, 'Tidak ada catatan konseling')}
-      ${section('Rekap Kolaborasi (Panggilan Ortu / Home Visit)', ['Tanggal','Jenis','Tujuan','Hasil'], kolaborasi, 'Tidak ada catatan kolaborasi')}
+      ${section('Rekap Pemanggilan Orang Tua', ['Tanggal','Tujuan','Hasil','Petugas'], kolaborasi.filter(r => r.Jenis === 'Pemanggilan Orang Tua'), 'Tidak ada catatan pemanggilan orang tua')}
+      <h3 style="margin-top:22px">Rekap Home Visit</h3>
+      ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
       ${section('Rekap 7 Kebiasaan Anak Indonesia Hebat', ['Tanggal','BangunPagiPukul','IbadahSholat','OlahragaJenis','BelajarMapel','IstirahatPukul'], kebiasaan, 'Belum ada catatan kebiasaan harian')}
       ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
     `;
@@ -1684,7 +1736,9 @@ $('#btnGenerateReport').addEventListener('click', () => {
   }
 
   const kelas = $('#reportKelas').value;
-  let rows = STATE[type] || [];
+  let rows = (type === 'pemanggilan_ortu' || type === 'home_visit')
+    ? STATE.kolaborasi.filter(r => r.Jenis === (type === 'pemanggilan_ortu' ? 'Pemanggilan Orang Tua' : 'Home Visit'))
+    : (STATE[type] || []);
   if (kelas) rows = rows.filter(r => r.Kelas === kelas);
   rows = filterByPeriode(rows, type);
   if ('Tanggal' in (rows[0]||{}) || REPORT_COLUMNS[type].includes('Tanggal')){
@@ -1700,12 +1754,13 @@ $('#btnGenerateReport').addEventListener('click', () => {
     ${buildReportSummaryHtml(type, rows)}
     ${showRekapKelas ? buildKelasRecapHtml(type, rows) : ''}
     <h3 style="margin-top:22px">Rincian Data</h3>
+    ${type === 'home_visit' ? buildHomeVisitReportHtml(rows) : `
     <table>
       <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
       <tbody>
         ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(reportCellValue(type, c, r) ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
       </tbody>
-    </table>
+    </table>`}
     <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
   `;
   $('#reportPreview').innerHTML = html;
@@ -1772,8 +1827,8 @@ function buildKelasRecapHtml(type, rows){
       return [k, grp.length, totalPoin];
     });
   } else {
-    // konseling, kolaborasi, kebiasaan: cukup jumlah catatan per kelas
-    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', kebiasaan:'Jumlah Formulir Terisi' };
+    // konseling, kolaborasi, pemanggilan_ortu, home_visit, kebiasaan: cukup jumlah catatan per kelas
+    const labelMap = { konseling:'Jumlah Sesi Konseling', kolaborasi:'Jumlah Kegiatan Kolaborasi', pemanggilan_ortu:'Jumlah Pemanggilan Orang Tua', home_visit:'Jumlah Home Visit', kebiasaan:'Jumlah Formulir Terisi' };
     head = ['Kelas', labelMap[type] || 'Jumlah Data'];
     body = classes.map(k => {
       const grp = rows.filter(r => (r.Kelas||'-') === k);
@@ -1796,6 +1851,24 @@ function buildKelasRecapHtml(type, rows){
         <tr style="font-weight:700;background:#f7f8f6">${totalsRow.map((v,i)=> `<td${i>0?' style="text-align:center"':''}>${escapeHtml(v)}</td>`).join('')}</tr>
       </tbody>
     </table>`;
+}
+
+/* Rincian Rekap Home Visit ditampilkan sebagai kartu (bukan tabel biasa) supaya
+   foto bukti kunjungan ikut tampil & bisa diperbesar (klik foto = lightbox),
+   baik di Laporan per kelas maupun Laporan Individu Siswa. */
+function buildHomeVisitReportHtml(rows){
+  if (!rows.length) return `<p style="text-align:center;color:#999;margin-top:16px">Tidak ada data Home Visit</p>`;
+  return `<div class="report-homevisit-grid">${rows.map(r => `
+    <div class="report-homevisit-card">
+      <div class="report-homevisit-head">
+        <b>${escapeHtml(r.Nama||'-')}</b>&nbsp;<span class="muted">(${escapeHtml(r.Kelas||'-')})</span>
+        <span class="report-homevisit-date">${fmtDate(r.Tanggal)}</span>
+      </div>
+      <p><b>Tujuan:</b> ${escapeHtml(r.Tujuan||'-')}</p>
+      <p><b>Hasil:</b> ${escapeHtml(r.Hasil||'-')}</p>
+      <p><b>Petugas:</b> ${escapeHtml(r.Petugas||'-')}</p>
+      ${r.BuktiFoto ? `<img src="${r.BuktiFoto}" alt="Bukti Home Visit" class="report-homevisit-photo" data-lightbox-id="${escapeHtml(r.ID)}" title="Klik untuk perbesar" />` : '<p class="muted">Tidak ada foto bukti</p>'}
+    </div>`).join('')}</div>`;
 }
 
 /* ---------------- IMPORT DATA SISWA DARI EXCEL ----------------
