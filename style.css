@@ -331,6 +331,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   border:1px solid var(--border); margin-top:6px; cursor:zoom-in;
 }
 
+/* ============ TANDA TANGAN / PARAF (Signature Pad) ============ */
+.signature-pad-box{
+  position:relative; border:1.5px dashed var(--border); border-radius:var(--radius-sm);
+  background:#fff; overflow:hidden;
+}
+.signature-canvas{ display:block; width:100%; height:150px; touch-action:none; cursor:crosshair; }
+.signature-placeholder{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  color:var(--ink-soft); font-size:12.5px; pointer-events:none; text-align:center; padding:0 12px;
+}
+.signature-actions{ display:flex; gap:8px; margin-top:8px; }
+.signature-thumb{
+  display:block; max-width:160px; max-height:64px; object-fit:contain;
+  border:1px solid var(--border); border-radius:6px; background:#fff; cursor:zoom-in; margin-top:4px;
+}
+
 /* ============ IMAGE LIGHTBOX ============ */
 .lightbox-backdrop{
   position:fixed; inset:0; background:rgba(10,14,18,.92); z-index:500;

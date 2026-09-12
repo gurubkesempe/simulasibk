@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzyqRxh7csRXcs5u7rq3ZN0J_ZJN-ooqKLqbDZSdMYjjLl7oYENMsWi-sVCBA3NlauH/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxG90u_L1DGe-4hG4UNgh6iefulE1iorYwgU-mVxXb4lwzWcxHMUA-_FKnjwXb3cAsA/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -591,6 +591,83 @@ document.addEventListener('change', async e => {
   }
 });
 
+/* ---------------- TANDA TANGAN / PARAF (Signature Pad) ----------------
+   Dipakai di form Sesi Konseling supaya siswa bisa langsung tanda tangan
+   atau paraf di layar (mouse/trackpad atau sentuh di HP/tablet) begitu
+   sesi konseling selesai. Hasilnya disimpan sebagai gambar (PNG data URL)
+   ke kolom tersembunyi TTD — persis seperti pola Bukti Foto Home Visit di
+   atas — sehingga otomatis ikut tersimpan ke Google Sheet lewat createRow/
+   updateRow yang sudah ada, dan otomatis ikut tampil di Laporan (kolom TTD,
+   di sebelah Rencana Tindak Lanjut) tanpa perlu perubahan lain. */
+function initSignaturePads(){
+  $all('.signature-wrap .signature-canvas').forEach(canvas => {
+    if (canvas.dataset.inited) return;
+    canvas.dataset.inited = '1';
+    const wrap = canvas.closest('.signature-wrap');
+    const hidden = wrap.querySelector('.signature-hidden');
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = canvas.clientWidth || 300;
+    const cssHeight = 150;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+    canvas.style.height = cssHeight + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = '#1a2733';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    canvas._sigCtx = ctx;
+    canvas._sigCssSize = { w: cssWidth, h: cssHeight };
+    if (hidden.value){
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, cssWidth, cssHeight);
+      img.src = hidden.value;
+    }
+  });
+}
+function signatureCanvasPos(canvas, evt){
+  const rect = canvas.getBoundingClientRect();
+  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+}
+function endSignatureStroke(canvas){
+  if (!canvas || !canvas._sigDrawing) return;
+  canvas._sigDrawing = false;
+  const wrap = canvas.closest('.signature-wrap');
+  wrap.querySelector('.signature-hidden').value = canvas.toDataURL('image/png');
+}
+document.addEventListener('pointerdown', e => {
+  const canvas = e.target.closest('.signature-canvas');
+  if (!canvas || !canvas._sigCtx) return;
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+  const pos = signatureCanvasPos(canvas, e);
+  canvas._sigCtx.beginPath();
+  canvas._sigCtx.moveTo(pos.x, pos.y);
+  canvas._sigDrawing = true;
+  const placeholder = canvas.closest('.signature-wrap').querySelector('.signature-placeholder');
+  if (placeholder) placeholder.style.display = 'none';
+});
+document.addEventListener('pointermove', e => {
+  const canvas = e.target.closest('.signature-canvas');
+  if (!canvas || !canvas._sigDrawing) return;
+  const pos = signatureCanvasPos(canvas, e);
+  canvas._sigCtx.lineTo(pos.x, pos.y);
+  canvas._sigCtx.stroke();
+});
+document.addEventListener('pointerup', e => endSignatureStroke(e.target.closest('.signature-canvas')));
+document.addEventListener('pointercancel', e => endSignatureStroke(e.target.closest('.signature-canvas')));
+document.addEventListener('click', e => {
+  const clearBtn = e.target.closest('.signature-clear-btn');
+  if (!clearBtn) return;
+  const wrap = clearBtn.closest('.signature-wrap');
+  const canvas = wrap.querySelector('.signature-canvas');
+  if (canvas && canvas._sigCtx) canvas._sigCtx.clearRect(0, 0, canvas._sigCssSize.w, canvas._sigCssSize.h);
+  wrap.querySelector('.signature-hidden').value = '';
+  const placeholder = wrap.querySelector('.signature-placeholder');
+  if (placeholder) placeholder.style.display = '';
+});
+
 /* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
 function siswaPickerFilter(wrap, query){
   const q = (query||'').trim().toLowerCase();
@@ -851,6 +928,7 @@ function renderKonseling(searchQuery){
         <p><b>Masalah:</b> ${escapeHtml(k.Masalah||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.HasilKonseling||'-')}</p>
         <p><b>Tindak lanjut:</b> ${escapeHtml(k.TindakLanjut||'-')}</p>
+        ${k.TTD ? `<p style="margin-top:8px"><b>TTD Siswa:</b><br/><img src="${k.TTD}" alt="Tanda Tangan Siswa" class="signature-thumb" data-lightbox-src="${k.TTD}" title="Klik untuk perbesar" /></p>` : ''}
       </div>
       <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Konselor||'')}</span></div>
     </div>`).join('');
@@ -1019,7 +1097,8 @@ const FORM_CONFIG = {
       { key:'Konselor', label:'Konselor / Guru BK', type:'text', default: () => (USER_ROLE === 'konselor' ? KONSELOR_NAMA : '') },
       { key:'Masalah', label:'Uraian Masalah', type:'textarea', full:true },
       { key:'HasilKonseling', label:'Hasil Konseling', type:'textarea', full:true },
-      { key:'TindakLanjut', label:'Rencana Tindak Lanjut', type:'textarea', full:true }
+      { key:'TindakLanjut', label:'Rencana Tindak Lanjut', type:'textarea', full:true },
+      { key:'TTD', label:'Tanda Tangan / Paraf Siswa', type:'signature-pad', full:true }
     ]
   },
   kolaborasi: {
@@ -1087,6 +1166,21 @@ function openForm(type, id, prefill){
         <p class="muted" style="margin-top:6px;font-size:11.5px">Sebagai bukti kunjungan Home Visit sudah dilaksanakan. Foto otomatis diperkecil &amp; dikompres.</p>
       </div>`;
     }
+    if (f.type === 'signature-pad'){
+      const hasSig = !!val;
+      return `<div class="${wrapClass} signature-wrap" data-signature-wrap>
+        <label>${f.label}</label>
+        <div class="signature-pad-box">
+          <canvas class="signature-canvas"></canvas>
+          <span class="signature-placeholder" style="${hasSig ? 'display:none' : ''}">Tanda tangan / paraf di sini...</span>
+        </div>
+        <div class="signature-actions">
+          <button class="btn btn-ghost signature-clear-btn" type="button"><i class="fa-solid fa-eraser"></i> Hapus</button>
+        </div>
+        <input type="hidden" name="${f.key}" class="signature-hidden" value="${escapeHtml(val||'')}" />
+        <p class="muted" style="margin-top:6px;font-size:11.5px">Minta siswa tanda tangan atau paraf di kotak ini setelah sesi konseling selesai. TTD ini akan ikut tampil di Laporan, di sebelah Rencana Tindak Lanjut.</p>
+      </div>`;
+    }
     if (f.type === 'select'){
       return `<div class="${wrapClass}"><label>${f.label}</label>
         <select name="${f.key}" ${f.required?'required':''}>
@@ -1123,6 +1217,7 @@ function openForm(type, id, prefill){
       </div>
     </form>`;
 
+  initSignaturePads();
   $('#formCancel').addEventListener('click', closeModal);
   $('#entityForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1439,7 +1534,7 @@ const REPORT_COLUMNS = {
   siswa: ['NIS','Nama','Kelas','JenisKelamin','NamaOrtu','NoHPOrtu'],
   absensi: ['Tanggal','Nama','Kelas','Status','Keterangan'],
   pelanggaran: ['Tanggal','Nama','Kelas','JenisPelanggaran','Poin','Penanganan'],
-  konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut'],
+  konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut','TTD'],
   kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
   pemanggilan_ortu: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
   home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas']
@@ -1502,6 +1597,14 @@ function semesterMonthRange(){
 function reportCellValue(type, col, row){
   if (type === 'konseling' && col === 'Nama') return konselingDisplayNis(row);
   return row[col];
+}
+/* Kolom TTD (tanda tangan/paraf siswa) disimpan sebagai gambar (data URL),
+   jadi ditampilkan sebagai thumbnail gambar di Laporan (bukan teks panjang
+   yang di-escape seperti kolom lain), dengan klik untuk memperbesar lewat
+   lightbox yang sudah ada. */
+function reportSignatureCellHtml(val){
+  if (!val) return '<span class="muted">Belum TTD</span>';
+  return `<img src="${val}" alt="Tanda tangan siswa" class="signature-thumb" data-lightbox-src="${val}" title="Klik untuk perbesar" />`;
 }
 function filterByPeriode(rows, type){
   const periode = $('#reportPeriode').value;
@@ -1569,7 +1672,7 @@ $('#btnGenerateReport').addEventListener('click', () => {
       <table>
         <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
         <tbody>
-          ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(r[c] ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">${emptyMsg}</td></tr>`}
+          ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):(c==='TTD'?reportSignatureCellHtml(r[c]):escapeHtml(r[c] ?? '-'))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">${emptyMsg}</td></tr>`}
         </tbody>
       </table>`;
 
@@ -1588,7 +1691,7 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${section('Rekap Absensi', ['Tanggal','Status','Keterangan'], absensi, 'Tidak ada catatan absensi')}
       ${buildReportSummaryHtml('pelanggaran', pelanggaran)}
       ${section('Rekap Pelanggaran', ['Tanggal','JenisPelanggaran','Poin','Penanganan'], pelanggaran, 'Tidak ada catatan pelanggaran')}
-      ${section('Rekap Konseling', ['Tanggal','Topik','HasilKonseling','TindakLanjut'], konseling, 'Tidak ada catatan konseling')}
+      ${section('Rekap Konseling', ['Tanggal','Topik','HasilKonseling','TindakLanjut','TTD'], konseling, 'Tidak ada catatan konseling')}
       ${section('Rekap Pemanggilan Orang Tua', ['Tanggal','Tujuan','Hasil','Petugas'], kolaborasi.filter(r => r.Jenis === 'Pemanggilan Orang Tua'), 'Tidak ada catatan pemanggilan orang tua')}
       <h3 style="margin-top:22px">Rekap Home Visit</h3>
       ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
@@ -1624,7 +1727,7 @@ $('#btnGenerateReport').addEventListener('click', () => {
     <table>
       <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
       <tbody>
-        ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):escapeHtml(reportCellValue(type, c, r) ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
+        ${rows.length ? rows.map(r => `<tr>${cols.map(c => `<td>${c==='Tanggal'?fmtDate(r[c]):(c==='TTD'?reportSignatureCellHtml(r[c]):escapeHtml(reportCellValue(type, c, r) ?? '-'))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" style="text-align:center;color:#999">Tidak ada data</td></tr>`}
       </tbody>
     </table>`}
     <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
