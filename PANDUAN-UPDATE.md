@@ -4,6 +4,29 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
+## -1. PENTING (update terbaru) — ganti Code.gs lagi
+
+Update kali ini:
+
+1. **Konselor (Guru BK) sekarang boleh mencatat Kolaborasi, Absensi, dan Pelanggaran**,
+   tidak cuma Konseling seperti sebelumnya — dibatasi ke kelas tanggung jawabnya sama
+   seperti aturan Konseling. Ini murni perubahan aturan akses di `Code.gs`
+   (`ROLE_WRITABLE_TYPES`), jadi **wajib timpa ulang `Code.gs`** kamu, kalau tidak akun
+   Konselor akan tetap mendapat error "hanya bisa mencatat data Konseling" saat mencoba
+   menambah data lain.
+2. **Kolaborasi jenis "Home Visit" sekarang punya field Upload Bukti Foto** (bisa
+   diganti lagi lewat Edit). Foto disimpan sebagai kolom baru **"BuktiFoto"** di sheet
+   Kolaborasi — kolom ini **otomatis ditambahkan sendiri** ke sheet Kolaborasi yang
+   sudah ada (lewat `ensureHeaderColumns()` di `Code.gs`), jadi tidak perlu edit manual
+   header sheet, dan data lama sama sekali tidak tersentuh. Ini juga butuh `Code.gs`
+   baru supaya kolom itu benar-benar tersimpan (backend lama akan diam-diam membuang
+   data foto karena tidak mengenali kolomnya).
+
+Cara update `Code.gs`-nya sama seperti bagian 1 di bawah: timpa isi `Code.gs` di Apps
+Script Editor kamu dengan file `Code.gs` di paket ini, lalu **Deploy → Manage deployments
+→ pilih deployment aktif → Edit (ikon pensil) → Version: New version → Deploy** (supaya
+URL Web App tidak berubah, tidak perlu update ulang di layar login aplikasi).
+
 ## 0. PENTING — update ini WAJIB ganti Code.gs lagi
 
 Update kali ini menambahkan penyimpanan **Profil Sekolah** (Nama Sekolah, Tahun

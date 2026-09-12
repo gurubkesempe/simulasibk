@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyq6IpnH-h4cvLg4FJ1VWEmUo9vu9mt-lYDyQ37AuzpKKfSSUnqapvDuXlgUEM2X99R/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbysW5YtTF4PupVUxdmp7mtlP0VqmWL8qP10WjGViyMs0WuetjxORv7qa9EpjN7Xf_MK/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -548,6 +548,58 @@ document.addEventListener('input', e => {
   wrap.querySelector('input[type=hidden]').value = e.target.value;
 });
 
+/* ---------------- BUKTI FOTO HOME VISIT (Kolaborasi) ----------------
+   Field foto cuma ditampilkan saat Jenis Kegiatan = "Home Visit", dan foto
+   yang diupload otomatis diperkecil/dikompres (reuse resizeImageToDataUrl,
+   dipakai juga oleh Logo Sekolah) supaya muat disimpan sebagai satu sel di
+   Google Sheet maupun saat diekspor ke Excel lewat fitur Backup. */
+document.addEventListener('change', e => {
+  if (!(e.target.tagName === 'SELECT' && e.target.name === 'Jenis')) return;
+  const form = e.target.closest('form');
+  const wrap = form ? form.querySelector('[data-bukti-foto-wrap]') : null;
+  if (wrap) wrap.style.display = (e.target.value === 'Home Visit') ? '' : 'none';
+});
+document.addEventListener('click', e => {
+  const uploadBtn = e.target.closest('.bukti-foto-btn');
+  if (uploadBtn){
+    uploadBtn.closest('.bukti-foto-wrap').querySelector('.bukti-foto-file').click();
+    return;
+  }
+  const removeBtn = e.target.closest('.bukti-foto-remove-btn');
+  if (removeBtn){
+    const wrap = removeBtn.closest('.bukti-foto-wrap');
+    wrap.querySelector('.bukti-foto-preview-wrap').innerHTML = `<i class="fa-solid fa-camera"></i>`;
+    wrap.querySelector('.bukti-foto-hidden').value = '';
+    removeBtn.style.display = 'none';
+    wrap.querySelector('.bukti-foto-btn').innerHTML = '<i class="fa-solid fa-upload"></i> Upload Foto';
+  }
+});
+document.addEventListener('change', async e => {
+  if (!e.target.classList.contains('bukti-foto-file')) return;
+  const file = e.target.files[0];
+  if (!file) return;
+  const wrap = e.target.closest('.bukti-foto-wrap');
+  if (!file.type.startsWith('image/')){ toast('File harus berupa gambar.', 'error'); e.target.value=''; return; }
+  const btn = wrap.querySelector('.bukti-foto-btn');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses...';
+  try{
+    // maxChars dijaga di bawah 32.767 (batas karakter per sel Excel), supaya
+    // foto ini tetap aman diekspor lewat fitur Backup (Excel) tanpa terpotong/error.
+    const dataUrl = await resizeImageToDataUrl(file, 420, 30000);
+    wrap.querySelector('.bukti-foto-preview-wrap').innerHTML = `<img src="${dataUrl}" alt="Bukti Foto" />`;
+    wrap.querySelector('.bukti-foto-hidden').value = dataUrl;
+    wrap.querySelector('.bukti-foto-remove-btn').style.display = '';
+    btn.innerHTML = '<i class="fa-solid fa-upload"></i> Ganti Foto';
+  }catch(err){
+    toast(err.message, 'error');
+    btn.innerHTML = originalLabel;
+  }finally{
+    btn.disabled = false;
+    e.target.value = '';
+  }
+});
+
 /* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
 function siswaPickerFilter(wrap, query){
   const q = (query||'').trim().toLowerCase();
@@ -838,6 +890,7 @@ function renderKolaborasi(searchQuery){
         <p><span class="badge badge--info">${escapeHtml(k.Jenis||'-')}</span></p>
         <p style="margin-top:8px"><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.Hasil||'-')}</p>
+        ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><a href="${k.BuktiFoto}" target="_blank" rel="noopener" title="Lihat foto ukuran penuh"><img src="${k.BuktiFoto}" alt="Bukti Home Visit" class="bukti-foto-thumb" /></a></p>` : ''}
       </div>
       <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Petugas||'')}</span></div>
     </div>`).join('');
@@ -931,6 +984,13 @@ function printKebiasaanForm(id){
 }
 
 /* ---------------- ROW ACTION DELEGATION (edit/delete) ---------------- */
+/* Konselor (Guru BK) sekarang boleh mengubah/menghapus bukan cuma Konseling,
+   tapi juga Kolaborasi, Absensi, dan Pelanggaran — selaras dengan
+   ROLE_WRITABLE_TYPES.konselor di backend. Pembatasan sesungguhnya (per
+   kelas tanggung jawab) tetap ditegakkan di server; validasi di sini murni
+   supaya tombol edit/delete tidak memunculkan form untuk tipe yang memang
+   tidak boleh diakses konselor sama sekali (mis. Data Siswa/Kebiasaan). */
+const KONSELOR_WRITABLE_TYPES_UI = ['konseling', 'kolaborasi', 'absensi', 'pelanggaran'];
 document.addEventListener('click', async (e) => {
   const editBtn = e.target.closest('[data-edit]');
   const delBtn = e.target.closest('[data-del]');
@@ -940,8 +1000,8 @@ document.addEventListener('click', async (e) => {
   if (printHabitBtn){ printKebiasaanForm(printHabitBtn.dataset.printHabit); return; }
   if ((editBtn || delBtn) && USER_ROLE === 'konselor'){
     const t = (editBtn || delBtn).dataset.edit || (editBtn || delBtn).dataset.del;
-    if (t !== 'konseling'){
-      toast('Akun Guru BK (Konselor) hanya bisa mengubah/menghapus data Konseling.', 'error');
+    if (!KONSELOR_WRITABLE_TYPES_UI.includes(t)){
+      toast('Akun Guru BK (Konselor) tidak bisa mengubah/menghapus data ini.', 'error');
       return;
     }
   }
@@ -1018,9 +1078,10 @@ const FORM_CONFIG = {
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
       { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Jenis', label:'Jenis Kegiatan', type:'select', options:['Pemanggilan Orang Tua','Home Visit'], required:true },
-      { key:'Petugas', label:'Petugas BK', type:'text' },
+      { key:'Petugas', label:'Petugas BK', type:'text', default: () => (USER_ROLE === 'konselor' ? KONSELOR_NAMA : '') },
       { key:'Tujuan', label:'Tujuan Kegiatan', type:'textarea', full:true },
-      { key:'Hasil', label:'Hasil / Kesepakatan', type:'textarea', full:true }
+      { key:'Hasil', label:'Hasil / Kesepakatan', type:'textarea', full:true },
+      { key:'BuktiFoto', label:'Bukti Foto Home Visit', type:'photo-buktihomevisit', full:true }
     ]
   },
   kebiasaan: {
@@ -1072,6 +1133,29 @@ function openForm(type, id, prefill){
           <input type="hidden" name="${f.key}" value="${escapeHtml(val||'')}" />
         </div>
         <p class="muted" style="margin-top:6px;font-size:11.5px">Daftar bisa diatur lewat tombol "Template Pelanggaran" di halaman Pelanggaran.</p>
+      </div>`;
+    }
+    if (f.type === 'photo-buktihomevisit'){
+      const hasPhoto = !!val;
+      // Field ini cuma relevan untuk Jenis = "Home Visit" — dicek dari data yang sudah
+      // ada (mode edit) atau prefill, supaya kalau sedang mengedit catatan Home Visit,
+      // field foto langsung kelihatan tanpa harus ganti-ganti dropdown Jenis dulu.
+      const jenisVal = existing ? (existing.Jenis || '') : (prefill && prefill.Jenis !== undefined ? prefill.Jenis : '');
+      const showNow = jenisVal === 'Home Visit';
+      return `<div class="${wrapClass} bukti-foto-wrap" data-bukti-foto-wrap style="${showNow ? '' : 'display:none'}">
+        <label>${f.label}</label>
+        <div class="logo-upload-row">
+          <div class="logo-preview bukti-foto-preview-wrap" style="width:90px;height:90px">
+            ${hasPhoto ? `<img src="${val}" alt="Bukti Foto" />` : `<i class="fa-solid fa-camera"></i>`}
+          </div>
+          <div class="logo-upload-actions">
+            <input type="file" class="hidden bukti-foto-file" accept="image/*" />
+            <button class="btn btn-ghost bukti-foto-btn" type="button"><i class="fa-solid fa-upload"></i> ${hasPhoto?'Ganti Foto':'Upload Foto'}</button>
+            <button class="btn btn-ghost bukti-foto-remove-btn" type="button" style="${hasPhoto?'':'display:none'}"><i class="fa-solid fa-trash"></i> Hapus</button>
+          </div>
+        </div>
+        <input type="hidden" name="${f.key}" class="bukti-foto-hidden" value="${escapeHtml(val||'')}" />
+        <p class="muted" style="margin-top:6px;font-size:11.5px">Sebagai bukti kunjungan Home Visit sudah dilaksanakan. Foto otomatis diperkecil &amp; dikompres.</p>
       </div>`;
     }
     if (f.type === 'select'){
@@ -1135,6 +1219,10 @@ function openForm(type, id, prefill){
       const s = siswaById(data.SiswaID);
       if (s){ data.Nama = s.Nama; data.Kelas = s.Kelas; }
     }
+    // Kalau Jenis Kegiatan bukan Home Visit, jangan ikut kirim foto (mis. sisa upload
+    // sebelum pengguna berganti pikiran memilih Jenis lain) — supaya tidak menyimpan
+    // data foto yang tidak relevan dengan Pemanggilan Orang Tua.
+    if (type === 'kolaborasi' && data.Jenis !== 'Home Visit'){ data.BuktiFoto = ''; }
     const missingSiswa = cfg.fields.find(f => f.type === 'select-siswa' && f.required && !data[f.key]);
     if (missingSiswa){ toast(`${missingSiswa.label} wajib dipilih — ketik nama lalu klik salah satu hasil.`, 'error'); return; }
     const missingJenis = cfg.fields.find(f => f.type === 'select-jenis-pelanggaran' && f.required && !data[f.key]);
@@ -1923,11 +2011,13 @@ function applyRoleUI(){
   $('#logoutBtnMobile').classList.toggle('hidden', !(isGuru || isKonselor));
   const mplBtn = $('#btnMasterPelanggaran');
   if (mplBtn) mplBtn.classList.toggle('hidden', isGuru || isKonselor);
-  /* Konselor cuma boleh MENULIS ke Konseling (server menolak selain itu -
-     lihat Code.gs) — sembunyikan tombol tambah/impor data lain supaya menu
-     yang tampil lengkap itu jadi read-only yang jelas, bukan tombol yang
-     ujung-ujungnya gagal dengan pesan error. */
-  ['#btnAddSiswa','#btnImportSiswa','#btnAddAbsensi','#btnBulkAbsensi','#btnAddPelanggaran','#btnAddKolaborasi','#btnAddKebiasaan']
+  /* Konselor sekarang boleh MENULIS ke Konseling, Kolaborasi, Absensi, dan
+     Pelanggaran (lihat ROLE_WRITABLE_TYPES.konselor di Code.gs) — jadi tombol
+     tambah untuk keempat itu TIDAK disembunyikan lagi. Yang tetap disembunyikan
+     hanya untuk tipe yang memang masih tertutup total buat Konselor (Data Siswa,
+     7 Kebiasaan) dan fitur admin-only (Absen Massal, Import Siswa) yang tetap
+     ditolak server siapa pun selain Admin. */
+  ['#btnAddSiswa','#btnImportSiswa','#btnBulkAbsensi','#btnAddKebiasaan']
     .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
   const badge = $('#guruBadge');
   if (badge){
