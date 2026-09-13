@@ -578,7 +578,7 @@ document.addEventListener('change', async e => {
     // maxChars dijaga di bawah 32.767 (batas karakter per sel Excel), supaya
     // foto ini tetap aman diekspor lewat fitur Backup (Excel) tanpa terpotong/error.
     const dataUrl = await resizeImageToDataUrl(file, 420, 30000);
-    wrap.querySelector('.bukti-foto-preview-wrap').innerHTML = `<img src="${dataUrl}" alt="Bukti Foto" />`;
+    wrap.querySelector('.bukti-foto-preview-wrap').innerHTML = `<img src="${escapeHtml(dataUrl)}" alt="Bukti Foto" />`;
     wrap.querySelector('.bukti-foto-hidden').value = dataUrl;
     wrap.querySelector('.bukti-foto-remove-btn').style.display = '';
     btn.innerHTML = '<i class="fa-solid fa-upload"></i> Ganti Foto';
@@ -928,7 +928,7 @@ function renderKonseling(searchQuery){
         <p><b>Masalah:</b> ${escapeHtml(k.Masalah||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.HasilKonseling||'-')}</p>
         <p><b>Tindak lanjut:</b> ${escapeHtml(k.TindakLanjut||'-')}</p>
-        ${k.TTD ? `<p style="margin-top:8px"><b>TTD Siswa:</b><br/><img src="${k.TTD}" alt="Tanda Tangan Siswa" class="signature-thumb" data-lightbox-src="${k.TTD}" title="Klik untuk perbesar" /></p>` : ''}
+        ${k.TTD ? `<p style="margin-top:8px"><b>TTD Siswa:</b><br/><img src="${escapeHtml(k.TTD)}" alt="Tanda Tangan Siswa" class="signature-thumb" data-lightbox-src="${escapeHtml(k.TTD)}" title="Klik untuk perbesar" /></p>` : ''}
       </div>
       <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Konselor||'')}</span></div>
     </div>`).join('');
@@ -959,7 +959,7 @@ function renderKolaborasi(searchQuery){
         <p><span class="badge badge--info">${escapeHtml(k.Jenis||'-')}</span></p>
         <p style="margin-top:8px"><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.Hasil||'-')}</p>
-        ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><img src="${k.BuktiFoto}" alt="Bukti Home Visit" class="bukti-foto-thumb" data-lightbox-id="${escapeHtml(k.ID)}" title="Klik untuk perbesar" /></p>` : ''}
+        ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><img src="${escapeHtml(k.BuktiFoto)}" alt="Bukti Home Visit" class="bukti-foto-thumb" data-lightbox-id="${escapeHtml(k.ID)}" title="Klik untuk perbesar" /></p>` : ''}
       </div>
       <div class="entry-foot"><span class="entry-date">${fmtDate(k.Tanggal)}</span><span class="entry-sub">${escapeHtml(k.Petugas||'')}</span></div>
     </div>`).join('');
@@ -1154,7 +1154,7 @@ function openForm(type, id, prefill){
         <label>${f.label}</label>
         <div class="logo-upload-row">
           <div class="logo-preview bukti-foto-preview-wrap" style="width:90px;height:90px">
-            ${hasPhoto ? `<img src="${val}" alt="Bukti Foto" />` : `<i class="fa-solid fa-camera"></i>`}
+            ${hasPhoto ? `<img src="${escapeHtml(val)}" alt="Bukti Foto" />` : `<i class="fa-solid fa-camera"></i>`}
           </div>
           <div class="logo-upload-actions">
             <input type="file" class="hidden bukti-foto-file" accept="image/*" />
@@ -1604,7 +1604,7 @@ function reportCellValue(type, col, row){
    lightbox yang sudah ada. */
 function reportSignatureCellHtml(val){
   if (!val) return '<span class="muted">Belum TTD</span>';
-  return `<img src="${val}" alt="Tanda tangan siswa" class="signature-thumb" data-lightbox-src="${val}" title="Klik untuk perbesar" />`;
+  return `<img src="${escapeHtml(val)}" alt="Tanda tangan siswa" class="signature-thumb" data-lightbox-src="${escapeHtml(val)}" title="Klik untuk perbesar" />`;
 }
 function filterByPeriode(rows, type){
   const periode = $('#reportPeriode').value;
@@ -1836,7 +1836,7 @@ function buildHomeVisitReportHtml(rows){
       <p><b>Tujuan:</b> ${escapeHtml(r.Tujuan||'-')}</p>
       <p><b>Hasil:</b> ${escapeHtml(r.Hasil||'-')}</p>
       <p><b>Petugas:</b> ${escapeHtml(r.Petugas||'-')}</p>
-      ${r.BuktiFoto ? `<img src="${r.BuktiFoto}" alt="Bukti Home Visit" class="report-homevisit-photo" data-lightbox-id="${escapeHtml(r.ID)}" title="Klik untuk perbesar" />` : '<p class="muted">Tidak ada foto bukti</p>'}
+      ${r.BuktiFoto ? `<img src="${escapeHtml(r.BuktiFoto)}" alt="Bukti Home Visit" class="report-homevisit-photo" data-lightbox-id="${escapeHtml(r.ID)}" title="Klik untuk perbesar" />` : '<p class="muted">Tidak ada foto bukti</p>'}
     </div>`).join('')}</div>`;
 }
 
@@ -2214,7 +2214,7 @@ function openSettings(){
         <label>Logo Sekolah</label>
         <div class="logo-upload-row">
           <div class="logo-preview" id="settingsLogoPreviewWrap">
-            ${SCHOOL_LOGO ? `<img id="settingsLogoPreview" src="${SCHOOL_LOGO}" alt="Logo" />` : `<i class="fa-solid fa-image"></i>`}
+            ${SCHOOL_LOGO ? `<img id="settingsLogoPreview" src="${escapeHtml(SCHOOL_LOGO)}" alt="Logo" />` : `<i class="fa-solid fa-image"></i>`}
           </div>
           <div class="logo-upload-actions">
             <input type="file" id="settingsLogoFile" accept="image/*" class="hidden" />
@@ -2257,7 +2257,7 @@ function openSettings(){
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses...';
     try{
       pendingLogoDataUrl = await resizeImageToDataUrl(file);
-      $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${pendingLogoDataUrl}" alt="Logo" />`;
+      $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${escapeHtml(pendingLogoDataUrl)}" alt="Logo" />`;
       $('#settingsLogoRemoveBtn').style.display = '';
     }catch(err){
       toast(err.message, 'error');

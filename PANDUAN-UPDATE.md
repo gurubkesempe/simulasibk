@@ -4,7 +4,30 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
-## -2. PENTING (update terbaru) — ganti Code.gs lagi: TTD Siswa di Konseling
+## -3. PENTING (update terbaru) — Pengetatan Keamanan
+
+Karena `DEFAULT_API_URL` tertanam langsung di `script.js` (jadi terlihat publik kalau
+repo GitHub-nya publik), update ini menambahkan:
+
+1. **Proteksi brute-force di login Guru Mapel & Konselor** — setelah 5x gagal berturut-
+   turut, Username itu dikunci otomatis selama 15 menit (memakai `CacheService`, bukan
+   Sheet, jadi otomatis kadaluarsa sendiri). Tiap percobaan gagal juga diberi jeda ±1.2
+   detik supaya tebak-tebak otomatis jauh lebih lambat. **Wajib ganti `Code.gs`** untuk
+   dapat proteksi ini.
+2. **Menutup 6 celah stored-XSS** di fitur TTD Tanda Tangan, Bukti Foto Home Visit, dan
+   Logo Sekolah — semua sekarang di-escape sebelum ditampilkan. **Wajib ganti `script.js`**.
+3. **Kolom "Konselor" pada data Konseling kini otomatis "distempel"** nama akun Konselor
+   yang login saat membuat sesi baru (tidak bisa dipalsukan lewat DevTools), supaya
+   Laporan Konseling per-konselor selalu akurat.
+4. **BARU: Notifikasi email otomatis** ke Admin setiap kali ada akun Guru/Konselor yang
+   kena lockout brute-force (lihat poin 1). Secara default terkirim ke email pemilik
+   script ini — kalau mau kirim ke alamat lain, tambahkan Script Property
+   **`ALERT_EMAIL`** (Project Settings > Script Properties) berisi email tujuan.
+
+Tidak ada perubahan struktur Sheet di update ini — cukup timpa `Code.gs` & `script.js`,
+lalu deploy ulang Web App.
+
+## -2. PENTING (update sebelumnya) — ganti Code.gs lagi: TTD Siswa di Konseling
 
 Form **Tambah/Edit Sesi Konseling** sekarang punya kotak **Tanda Tangan / Paraf Siswa**
 (digambar langsung di layar pakai mouse atau jari di HP/tablet). Setelah sesi konseling
