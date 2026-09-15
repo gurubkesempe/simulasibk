@@ -4,7 +4,37 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
-## -3. PENTING (update terbaru) — Pengetatan Keamanan
+## -4. PENTING (update terbaru) — Rekap Absensi format lembar sekolah
+
+Laporan **Rekap Absensi** sekarang punya pilihan baru **"Bentuk Rekap Absensi"** di
+halaman Laporan:
+
+1. **Grid Bulanan (format buku absensi)** — meniru lembar "ABSENSI KELAS" manual:
+   satu baris per siswa, kolom tanggal 1–31, sel diisi kode **S / I / A** (Hadir
+   sengaja dibiarkan kosong seperti di lembar aslinya), kolom **JUMLAH (S | I | A)**
+   dan **KETR** di ujung kanan, lalu rekap **PUTRA / PUTRI / TOTAL**, keterangan
+   kode, dan blok tanda tangan Guru BK. Wajib pilih **Kelas** + **Bulan**; otomatis
+   dicetak **landscape**. Semua siswa kelas itu tetap muncul barisnya walau belum
+   pernah dicatat absensinya.
+2. **Rekap per Siswa (per anak)** — satu baris per siswa: Hadir / Sakit / Izin /
+   Alpa, jumlah, dan **% kehadiran**, plus baris Total.
+3. **Rekap per Kelas** — total H/S/I/A tiap kelas untuk periode yang dipilih.
+4. **Rekap per Bulan** — bulan demi bulan; paling berguna kalau Periode dipilih
+   **Semester**, jadi satu semester terlihat dalam satu tabel.
+5. **Rincian Harian** — daftar catatan seperti versi sebelumnya (tidak berubah).
+
+Bentuk 2–4 mengikuti **Periode** yang dipilih (Harian / Bulanan / Semester / Semua
+Tanggal), jadi rekap per bulan & per semester tinggal ganti periodenya.
+
+Di **Pengaturan > Profil Sekolah** ada tiga isian baru untuk kaki laporan:
+**Kota/Tempat Tanda Tangan**, **Nama Guru BK**, dan **NIP Guru BK** (contoh hasil:
+"Sragi, 15 September 2026 / Guru BK / SURYA IHZA MAHISTA, S.Pd / NIP. -").
+
+Cukup ganti `index.html`, `script.js`, dan `style.css`. **Tidak ada perubahan
+`Code.gs` dan tidak ada perubahan struktur Sheet** — tiga isian baru tadi tersimpan
+sebagai baris key-value biasa di sheet **Pengaturan** yang sudah ada.
+
+## -3. PENTING (update sebelumnya) — Pengetatan Keamanan
 
 Karena `DEFAULT_API_URL` tertanam langsung di `script.js` (jadi terlihat publik kalau
 repo GitHub-nya publik), update ini menambahkan:

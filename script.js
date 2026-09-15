@@ -49,6 +49,12 @@ let charts = {};
 let SCHOOL_NAME = localStorage.getItem('bk_school_name') || '';
 let SCHOOL_YEAR = localStorage.getItem('bk_school_year') || '';
 let SCHOOL_LOGO = localStorage.getItem('bk_school_logo') || '';
+/* Dipakai untuk blok tanda tangan di kaki laporan cetak (mis. "Sragi, 15 September 2026 /
+   Guru BK / SURYA IHZA MAHISTA, S.Pd / NIP. -"), mengikuti format lembar absensi manual
+   sekolah. Ikut tersimpan di sheet "Pengaturan" seperti profil sekolah lainnya. */
+let SCHOOL_CITY = localStorage.getItem('bk_school_city') || '';
+let SCHOOL_BK_NAME = localStorage.getItem('bk_school_bk_name') || '';
+let SCHOOL_BK_NIP = localStorage.getItem('bk_school_bk_nip') || '';
 
 function renderSchoolProfile(){
   const bar = $('#schoolProfileBar');
@@ -211,12 +217,18 @@ const DemoAdapter = {
     return {
       NamaSekolah: localStorage.getItem('bk_school_name') || '',
       TahunPelajaran: localStorage.getItem('bk_school_year') || '',
-      LogoSekolah: localStorage.getItem('bk_school_logo') || ''
+      LogoSekolah: localStorage.getItem('bk_school_logo') || '',
+      KotaSekolah: localStorage.getItem('bk_school_city') || '',
+      NamaGuruBK: localStorage.getItem('bk_school_bk_name') || '',
+      NipGuruBK: localStorage.getItem('bk_school_bk_nip') || ''
     };
   },
   async saveSettings(data){
     if (data.NamaSekolah !== undefined) localStorage.setItem('bk_school_name', data.NamaSekolah);
     if (data.TahunPelajaran !== undefined) localStorage.setItem('bk_school_year', data.TahunPelajaran);
+    if (data.KotaSekolah !== undefined) localStorage.setItem('bk_school_city', data.KotaSekolah);
+    if (data.NamaGuruBK !== undefined) localStorage.setItem('bk_school_bk_name', data.NamaGuruBK);
+    if (data.NipGuruBK !== undefined) localStorage.setItem('bk_school_bk_nip', data.NipGuruBK);
     if (data.LogoSekolah !== undefined){
       if (data.LogoSekolah) localStorage.setItem('bk_school_logo', data.LogoSekolah);
       else localStorage.removeItem('bk_school_logo');
@@ -371,6 +383,12 @@ function applySettingsFromServer(map){
   SCHOOL_NAME = map.NamaSekolah || '';
   SCHOOL_YEAR = map.TahunPelajaran || '';
   SCHOOL_LOGO = map.LogoSekolah || '';
+  SCHOOL_CITY = map.KotaSekolah || '';
+  SCHOOL_BK_NAME = map.NamaGuruBK || '';
+  SCHOOL_BK_NIP = map.NipGuruBK || '';
+  localStorage.setItem('bk_school_city', SCHOOL_CITY);
+  localStorage.setItem('bk_school_bk_name', SCHOOL_BK_NAME);
+  localStorage.setItem('bk_school_bk_nip', SCHOOL_BK_NIP);
   localStorage.setItem('bk_school_name', SCHOOL_NAME);
   localStorage.setItem('bk_school_year', SCHOOL_YEAR);
   if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
@@ -1560,12 +1578,42 @@ $('#reportType').addEventListener('change', () => {
   $('#reportKelasField').classList.toggle('hidden', isIndividu);
   $('#reportSiswaField').classList.toggle('hidden', !isIndividu);
   $('#reportRekapKelasWrap').style.display = isIndividu ? 'none' : '';
+  syncAbsensiViewUI();
 });
+
+/* Pilihan "Bentuk Rekap Absensi" hanya relevan saat Jenis Laporan = Rekap Absensi.
+   Khusus bentuk "Grid Bulanan" (meniru lembar absensi manual sekolah), periode
+   otomatis dikunci ke Bulanan karena satu lembar grid memang selalu mewakili
+   satu bulan penuh (kolom tanggal 1–31). */
+function syncAbsensiViewUI(){
+  const type = $('#reportType').value;
+  const isAbsensi = type === 'absensi';
+  const view = $('#reportAbsensiView').value;
+  $('#reportAbsensiViewField').classList.toggle('hidden', !isAbsensi);
+  const isGrid = isAbsensi && view === 'grid';
+  if (isGrid){
+    $('#reportPeriode').value = 'bulanan';
+    $('#reportTanggalField').classList.add('hidden');
+    $('#reportSemesterField').classList.add('hidden');
+    $('#reportTahunAjaranField').classList.add('hidden');
+    $('#reportBulanField').classList.remove('hidden');
+  }
+  $('#reportPeriodeField').classList.toggle('hidden', isGrid);
+  // Rekap per kelas otomatis sudah jadi isi laporannya sendiri pada bentuk
+  // "Per Kelas"/"Grid", jadi checkbox rekap ringkas disembunyikan di situ.
+  if (isAbsensi && (view === 'grid' || view === 'kelas')){
+    $('#reportRekapKelasWrap').style.display = 'none';
+  } else if (type !== 'individu'){
+    $('#reportRekapKelasWrap').style.display = '';
+  }
+}
+$('#reportAbsensiView').addEventListener('change', syncAbsensiViewUI);
 (function initReportDefaults(){
   const today = new Date();
   $('#reportTanggal').value = today.toISOString().slice(0,10);
   $('#reportBulan').value = today.toISOString().slice(0,7);
   $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
+  syncAbsensiViewUI();
 })();
 
 /* Ubah "2025/2026" (atau "2025-2026", "2025 2026") jadi { y1:2025, y2:2026 }.
@@ -1697,11 +1745,19 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
       ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
     `;
-    $('#reportPreview').innerHTML = html;
-    $('#reportPreviewCard').style.display = 'block';
-    $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
-    setTimeout(() => window.print(), 400);
+    showReportPreview(html);
     return;
+  }
+
+  /* ----- Rekap Absensi: grid bulanan / per siswa / per kelas / per bulan ----- */
+  if (type === 'absensi'){
+    const view = $('#reportAbsensiView').value;
+    if (view !== 'rincian'){
+      const html = buildAbsensiReportHtml(view);
+      if (html === null) return; // validasi gagal, pesan sudah ditampilkan
+      showReportPreview(html, view === 'grid');
+      return;
+    }
   }
 
   const kelas = $('#reportKelas').value;
@@ -1732,11 +1788,307 @@ $('#btnGenerateReport').addEventListener('click', () => {
     </table>`}
     <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
   `;
+  showReportPreview(html);
+});
+
+/* ================= REKAP ABSENSI (FORMAT LEMBAR ABSENSI SEKOLAH) =================
+   Meniru lembar "ABSENSI KELAS" manual: satu baris per siswa, kolom tanggal 1–31,
+   sel diisi kode S/I/A (Hadir sengaja dibiarkan kosong seperti di lembar aslinya),
+   lalu kolom JUMLAH (S | I | A) dan KETR di ujung kanan, ditutup rekap jumlah
+   siswa Putra/Putri serta blok tanda tangan Guru BK.
+   Empat bentuk rekap yang tersedia:
+   - grid   : grid bulanan per kelas (persis lembar manual)
+   - siswa  : rekap per anak (satu baris per siswa, total H/S/I/A + % kehadiran)
+   - kelas  : rekap per kelas (total H/S/I/A tiap kelas)
+   - bulan  : rekap per bulan (berguna untuk melihat satu semester sekaligus)
+   Semua bentuk selain "grid" mengikuti Periode yang dipilih (harian/bulanan/
+   semester/semua tanggal), jadi rekap per semester & per bulan tinggal memilih
+   periodenya. */
+
+/* Kode singkat di sel grid. Hadir = kosong, mengikuti kebiasaan lembar manual
+   (yang ditulis hanya siswa yang tidak masuk). */
+function absenKode(status){
+  const s = String(status || '').trim().toLowerCase();
+  if (s === 'sakit') return 'S';
+  if (s === 'izin') return 'I';
+  if (s === 'alpa' || s === 'alpha' || s === 'tanpa keterangan') return 'A';
+  return '';
+}
+function daysInMonth(ym){
+  const [y,m] = String(ym||'').split('-').map(Number);
+  if (!y || !m) return 31;
+  return new Date(y, m, 0).getDate();
+}
+function isPutra(s){ return String(s.JenisKelamin||'').trim().toUpperCase().startsWith('L'); }
+function isPutri(s){ return String(s.JenisKelamin||'').trim().toUpperCase().startsWith('P'); }
+function sortSiswaByNama(list){
+  return list.slice().sort((a,b) => String(a.Nama||'').localeCompare(String(b.Nama||''), 'id'));
+}
+/* Daftar siswa yang jadi baris rekap: diambil dari Data Siswa (bukan dari catatan
+   absensi) supaya siswa yang selalu hadir / belum pernah dicatat pun tetap muncul
+   barisnya — sama seperti lembar absensi manual yang memuat seluruh siswa kelas. */
+function siswaForReport(kelas){
+  const list = (STATE.siswa || []).filter(s => !kelas || s.Kelas === kelas);
+  return sortSiswaByNama(list);
+}
+/* Cocokkan catatan absensi ke siswa: utamakan SiswaID, tapi tetap bisa jatuh ke
+   pencocokan Nama+Kelas supaya data lama yang SiswaID-nya kosong tidak hilang. */
+function absensiSiswaKey(row){
+  return String(row.SiswaID || '').trim() || ('nama:' + String(row.Nama||'').trim().toLowerCase() + '|' + String(row.Kelas||'').trim().toLowerCase());
+}
+function siswaKeys(s){
+  return [String(s.ID||'').trim(), 'nama:' + String(s.Nama||'').trim().toLowerCase() + '|' + String(s.Kelas||'').trim().toLowerCase()];
+}
+
+function buildAbsensiReportHtml(view){
+  const kelas = $('#reportKelas').value;
+  if (view === 'grid'){
+    if (!kelas){ toast('Pilih Kelas terlebih dahulu untuk Grid Bulanan (satu lembar = satu kelas).', 'error'); return null; }
+    const ym = $('#reportBulan').value;
+    if (!ym){ toast('Pilih Bulan terlebih dahulu.', 'error'); return null; }
+    return buildAbsensiGridHtml(kelas, ym);
+  }
+  let rows = filterByPeriode((STATE.absensi || []).filter(r => !kelas || r.Kelas === kelas), 'absensi');
+  const headLine = `<div class="report-head-line"><span>Kelas: ${escapeHtml(kelas || 'Semua Kelas')} &nbsp;|&nbsp; Periode: ${periodeLabel()}</span><span>Dicetak: ${todayLabel()}</span></div>`;
+  if (view === 'siswa'){
+    return `<h2>Rekap Absensi Per Siswa</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
+      ${buildAbsensiPerSiswaHtml(rows, kelas)}${buildSignatureBlockHtml()}`;
+  }
+  if (view === 'kelas'){
+    return `<h2>Rekap Absensi Per Kelas</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
+      ${buildKelasRecapHtml('absensi', rows) || '<p style="text-align:center;color:#999;margin-top:16px">Tidak ada data absensi pada periode ini</p>'}${buildSignatureBlockHtml()}`;
+  }
+  // view === 'bulan'
+  return `<h2>Rekap Absensi Per Bulan</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
+    ${buildAbsensiPerBulanHtml(rows)}${buildSignatureBlockHtml()}`;
+}
+
+/* Grid bulanan satu kelas — tiruan lembar "ABSENSI KELAS" pada lampiran. */
+function buildAbsensiGridHtml(kelas, ym){
+  const siswa = siswaForReport(kelas);
+  const jml = daysInMonth(ym);
+  const days = Array.from({length: jml}, (_,i) => i+1);
+
+  // Peta: kunci siswa + tanggal -> kode S/I/A
+  const map = {};
+  (STATE.absensi || []).forEach(r => {
+    const tgl = String(r.Tanggal || '').slice(0,10);
+    if (tgl.slice(0,7) !== ym) return;
+    const kode = absenKode(r.Status);
+    if (!kode) return; // Hadir tidak ditulis di grid
+    const day = parseInt(tgl.slice(8,10), 10);
+    if (!day) return;
+    map[absensiSiswaKey(r) + '#' + day] = kode;
+  });
+
+  const body = siswa.map((s, i) => {
+    const keys = siswaKeys(s);
+    const count = { S:0, I:0, A:0 };
+    const cells = days.map(d => {
+      let kode = '';
+      for (const k of keys){ if (map[k + '#' + d]){ kode = map[k + '#' + d]; break; } }
+      if (kode) count[kode]++;
+      return `<td class="ag-day">${kode}</td>`;
+    }).join('');
+    return `<tr>
+      <td class="ag-no">${i+1}</td>
+      <td class="ag-nama">${escapeHtml(s.Nama || '-')}</td>
+      <td class="ag-lp">${escapeHtml(String(s.JenisKelamin||'').trim().toUpperCase().charAt(0) || '-')}</td>
+      ${cells}
+      <td class="ag-sum">${count.S || ''}</td>
+      <td class="ag-sum">${count.I || ''}</td>
+      <td class="ag-sum">${count.A || ''}</td>
+      <td class="ag-ketr"></td>
+    </tr>`;
+  }).join('');
+
+  const putra = siswa.filter(isPutra).length;
+  const putri = siswa.filter(isPutri).length;
+
+  return `
+    <h2 class="ag-title">ABSENSI KELAS</h2>
+    ${SCHOOL_NAME ? `<p class="ag-school">${escapeHtml(SCHOOL_NAME)}${SCHOOL_YEAR ? ` — Tahun Pelajaran ${escapeHtml(SCHOOL_YEAR)}` : ''}</p>` : ''}
+    <div class="ag-headline">
+      <span>KELAS : <b>${escapeHtml(kelas)}</b></span>
+      <span>BULAN : <b>${escapeHtml(monthLabel(ym))}</b></span>
+    </div>
+    <table class="absensi-grid">
+      <thead>
+        <tr>
+          <th rowspan="2" class="ag-no">NO</th>
+          <th rowspan="2" class="ag-nama">NAMA PESERTA DIDIK</th>
+          <th rowspan="2" class="ag-lp">L/P</th>
+          <th colspan="${jml}">TANGGAL</th>
+          <th colspan="3">JUMLAH</th>
+          <th rowspan="2" class="ag-ketr">KETR</th>
+        </tr>
+        <tr>
+          ${days.map(d => `<th class="ag-day">${d}</th>`).join('')}
+          <th class="ag-sum">S</th><th class="ag-sum">I</th><th class="ag-sum">A</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${siswa.length ? body : `<tr><td colspan="${jml+7}" style="text-align:center;color:#999">Belum ada siswa di kelas ini</td></tr>`}
+      </tbody>
+    </table>
+    <div class="ag-foot">
+      <div class="ag-foot-left">
+        <div class="ag-foot-row"><b>JUMLAH</b> &nbsp; PUTRA : <b>${putra}</b> Anak</div>
+        <div class="ag-foot-row" style="padding-left:62px">PUTRI : <b>${putri}</b> Anak</div>
+        <div class="ag-foot-row" style="padding-left:62px">TOTAL &nbsp;: <b>${siswa.length}</b> Anak</div>
+        <div class="ag-foot-row" style="margin-top:8px"><b>KETERANGAN</b></div>
+        <div class="ag-foot-row">S : Sakit &nbsp; &nbsp; I : Izin &nbsp; &nbsp; A : Alfa</div>
+      </div>
+      ${buildSignatureBlockHtml(true)}
+    </div>`;
+}
+
+/* Rekap per anak: satu baris per siswa berisi total Hadir/Sakit/Izin/Alpa dan
+   persentase kehadiran terhadap jumlah hari yang tercatat untuk siswa itu. */
+function buildAbsensiPerSiswaHtml(rows, kelas){
+  const siswa = siswaForReport(kelas);
+  const byKey = {};
+  rows.forEach(r => {
+    const k = absensiSiswaKey(r);
+    if (!byKey[k]) byKey[k] = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+    const st = String(r.Status||'').trim();
+    if (byKey[k][st] !== undefined) byKey[k][st]++;
+    else if (absenKode(st) === 'A') byKey[k].Alpa++;
+  });
+
+  const total = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+  const body = siswa.map((s, i) => {
+    let c = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+    siswaKeys(s).forEach(k => {
+      if (byKey[k]) Object.keys(c).forEach(st => { c[st] += byKey[k][st]; });
+    });
+    const jumlah = c.Hadir + c.Sakit + c.Izin + c.Alpa;
+    const persen = jumlah ? Math.round((c.Hadir / jumlah) * 100) : 0;
+    Object.keys(total).forEach(st => { total[st] += c[st]; });
+    return `<tr>
+      <td style="text-align:center">${i+1}</td>
+      <td>${escapeHtml(s.NIS || '-')}</td>
+      <td>${escapeHtml(s.Nama || '-')}</td>
+      <td style="text-align:center">${escapeHtml(String(s.JenisKelamin||'-').trim().toUpperCase().charAt(0) || '-')}</td>
+      <td style="text-align:center">${escapeHtml(s.Kelas || '-')}</td>
+      <td style="text-align:center">${c.Hadir}</td>
+      <td style="text-align:center">${c.Sakit}</td>
+      <td style="text-align:center">${c.Izin}</td>
+      <td style="text-align:center">${c.Alpa}</td>
+      <td style="text-align:center">${jumlah}</td>
+      <td style="text-align:center">${jumlah ? persen + '%' : '-'}</td>
+    </tr>`;
+  }).join('');
+
+  const totalHari = total.Hadir + total.Sakit + total.Izin + total.Alpa;
+  return `
+    <h3 style="margin-top:22px">Rekap Per Siswa</h3>
+    <table>
+      <thead><tr>
+        <th>No</th><th>NIS</th><th>Nama</th><th>L/P</th><th>Kelas</th>
+        <th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alpa</th><th>Jumlah</th><th>% Hadir</th>
+      </tr></thead>
+      <tbody>
+        ${siswa.length ? body : `<tr><td colspan="11" style="text-align:center;color:#999">Tidak ada siswa</td></tr>`}
+        <tr style="font-weight:700;background:#f7f8f6">
+          <td colspan="5">Total</td>
+          <td style="text-align:center">${total.Hadir}</td>
+          <td style="text-align:center">${total.Sakit}</td>
+          <td style="text-align:center">${total.Izin}</td>
+          <td style="text-align:center">${total.Alpa}</td>
+          <td style="text-align:center">${totalHari}</td>
+          <td style="text-align:center">${totalHari ? Math.round((total.Hadir/totalHari)*100) + '%' : '-'}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+/* Rekap per bulan — paling berguna saat Periode dipilih "Semester", supaya satu
+   semester terlihat bulan demi bulan dalam satu tabel. */
+function buildAbsensiPerBulanHtml(rows){
+  const byMonth = {};
+  rows.forEach(r => {
+    const ym = String(r.Tanggal || '').slice(0,7);
+    if (!ym) return;
+    if (!byMonth[ym]) byMonth[ym] = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+    const st = String(r.Status||'').trim();
+    if (byMonth[ym][st] !== undefined) byMonth[ym][st]++;
+    else if (absenKode(st) === 'A') byMonth[ym].Alpa++;
+  });
+  const months = Object.keys(byMonth).sort();
+  const total = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
+  const body = months.map(ym => {
+    const c = byMonth[ym];
+    Object.keys(total).forEach(st => { total[st] += c[st]; });
+    const jml = c.Hadir + c.Sakit + c.Izin + c.Alpa;
+    return `<tr>
+      <td>${escapeHtml(monthLabel(ym))}</td>
+      <td style="text-align:center">${c.Hadir}</td>
+      <td style="text-align:center">${c.Sakit}</td>
+      <td style="text-align:center">${c.Izin}</td>
+      <td style="text-align:center">${c.Alpa}</td>
+      <td style="text-align:center">${jml}</td>
+      <td style="text-align:center">${jml ? Math.round((c.Hadir/jml)*100) + '%' : '-'}</td>
+    </tr>`;
+  }).join('');
+  const totalHari = total.Hadir + total.Sakit + total.Izin + total.Alpa;
+  return `
+    <h3 style="margin-top:22px">Rekap Per Bulan</h3>
+    <table>
+      <thead><tr><th>Bulan</th><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alpa</th><th>Jumlah</th><th>% Hadir</th></tr></thead>
+      <tbody>
+        ${months.length ? body : `<tr><td colspan="7" style="text-align:center;color:#999">Tidak ada data pada periode ini</td></tr>`}
+        <tr style="font-weight:700;background:#f7f8f6">
+          <td>Total</td>
+          <td style="text-align:center">${total.Hadir}</td>
+          <td style="text-align:center">${total.Sakit}</td>
+          <td style="text-align:center">${total.Izin}</td>
+          <td style="text-align:center">${total.Alpa}</td>
+          <td style="text-align:center">${totalHari}</td>
+          <td style="text-align:center">${totalHari ? Math.round((total.Hadir/totalHari)*100) + '%' : '-'}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function todayLabel(){
+  return new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+}
+/* Blok tanda tangan Guru BK di kaki laporan, mengikuti lembar absensi manual.
+   Nama kota, nama Guru BK & NIP diambil dari menu Pengaturan > Profil Sekolah. */
+function buildSignatureBlockHtml(inline){
+  const kota = SCHOOL_CITY || '..................';
+  const nama = SCHOOL_BK_NAME || '..................................';
+  const nip = SCHOOL_BK_NIP || '-';
+  return `
+    <div class="report-signature${inline ? ' report-signature--inline' : ''}">
+      <p>${escapeHtml(kota)}, ${todayLabel()}</p>
+      <p>Guru BK</p>
+      <div class="report-signature-space"></div>
+      <p class="report-signature-name">${escapeHtml(nama)}</p>
+      <p>NIP. ${escapeHtml(nip)}</p>
+    </div>`;
+}
+
+/* Satu pintu untuk menampilkan & mencetak laporan. Grid bulanan otomatis dicetak
+   landscape (kolom tanggal 1–31 tidak muat di portrait) lewat aturan @page yang
+   disuntikkan sementara, lalu dikembalikan ke portrait untuk laporan lain. */
+function showReportPreview(html, landscape){
   $('#reportPreview').innerHTML = html;
+  $('#reportPreview').classList.toggle('report-preview--wide', !!landscape);
+  let styleEl = document.getElementById('printOrientationStyle');
+  if (!styleEl){
+    styleEl = document.createElement('style');
+    styleEl.id = 'printOrientationStyle';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = landscape
+    ? '@page { size: A4 landscape; margin: 10mm; }'
+    : '@page { size: A4 portrait; margin: 14mm; }';
   $('#reportPreviewCard').style.display = 'block';
   $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
   setTimeout(() => window.print(), 400);
-});
+}
 
 /* Ringkasan total absensi (Hadir/Sakit/Izin/Alpa) & total pelanggaran, ditampilkan di atas tabel laporan */
 function buildReportSummaryHtml(type, rows){
@@ -2210,6 +2562,19 @@ function openSettings(){
         <label>Tahun Pelajaran Aktif</label>
         <input type="text" id="settingsSchoolYear" value="${escapeHtml(SCHOOL_YEAR)}" placeholder="Contoh: 2025/2026" />
       </div>
+      <div class="field full" style="margin-bottom:12px">
+        <label>Kota / Tempat Tanda Tangan</label>
+        <input type="text" id="settingsSchoolCity" value="${escapeHtml(SCHOOL_CITY)}" placeholder="Contoh: Sragi" />
+        <p class="muted" style="margin-top:4px;font-size:11.5px">Dipakai di kaki laporan cetak, contoh: “Sragi, 15 September 2026”.</p>
+      </div>
+      <div class="field full" style="margin-bottom:12px">
+        <label>Nama Guru BK (penanda tangan)</label>
+        <input type="text" id="settingsBkName" value="${escapeHtml(SCHOOL_BK_NAME)}" placeholder="Contoh: SURYA IHZA MAHISTA, S.Pd" />
+      </div>
+      <div class="field full" style="margin-bottom:12px">
+        <label>NIP Guru BK</label>
+        <input type="text" id="settingsBkNip" value="${escapeHtml(SCHOOL_BK_NIP)}" placeholder="Contoh: 19900101 201501 1 001 (isi - bila tidak ada)" />
+      </div>
       <div class="field full" style="margin-bottom:4px">
         <label>Logo Sekolah</label>
         <div class="logo-upload-row">
@@ -2274,13 +2639,21 @@ function openSettings(){
   $('#settingsProfileSaveBtn').addEventListener('click', async () => {
     const name = $('#settingsSchoolName').value.trim();
     const year = $('#settingsSchoolYear').value.trim();
+    const city = $('#settingsSchoolCity').value.trim();
+    const bkName = $('#settingsBkName').value.trim();
+    const bkNip = $('#settingsBkNip').value.trim();
     const logo = pendingLogoDataUrl || '';
     const btn = $('#settingsProfileSaveBtn');
     const originalLabel = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
     try{
-      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo });
+      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo,
+        KotaSekolah: city, NamaGuruBK: bkName, NipGuruBK: bkNip });
       SCHOOL_NAME = name; SCHOOL_YEAR = year; SCHOOL_LOGO = logo;
+      SCHOOL_CITY = city; SCHOOL_BK_NAME = bkName; SCHOOL_BK_NIP = bkNip;
+      localStorage.setItem('bk_school_city', SCHOOL_CITY);
+      localStorage.setItem('bk_school_bk_name', SCHOOL_BK_NAME);
+      localStorage.setItem('bk_school_bk_nip', SCHOOL_BK_NIP);
       localStorage.setItem('bk_school_name', SCHOOL_NAME);
       localStorage.setItem('bk_school_year', SCHOOL_YEAR);
       if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
