@@ -469,6 +469,7 @@ table.absensi-grid .ag-day{ width:15px; }
 table.absensi-grid .ag-sum{ width:18px; font-weight:700; }
 table.absensi-grid .ag-ketr{ width:48px; }
 table.absensi-grid tbody td.ag-day{ height:15px; }
+table.absensi-grid tbody td.ag-hadir{ font-weight:700; }
 
 .ag-foot{ display:flex; justify-content:space-between; gap:24px; margin-top:14px; font-size:12px; }
 .ag-foot-row{ margin:1px 0; }

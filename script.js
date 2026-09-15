@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbycujDyXqQ0q79VGcfiPUU9I281NOOG8gXvaOVYw9m6W_mUQxabNAmIK9_WvJk6oNhw/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyAG9O3VlirhnatS-Kn6qFE4_5U_kJdD2_5yqfiM5f7oWxH8utEbDCg_GvXGRmPlEZ2/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -1661,17 +1661,17 @@ function filterByPeriode(rows, type){
   if (periode === 'harian'){
     const tgl = $('#reportTanggal').value;
     if (!tgl) return rows;
-    return rows.filter(r => (r.Tanggal||'').slice(0,10) === tgl);
+    return rows.filter(r => normalizeTanggal(r.Tanggal) === tgl);
   }
   if (periode === 'bulanan'){
     const bln = $('#reportBulan').value; // yyyy-mm
     if (!bln) return rows;
-    return rows.filter(r => (r.Tanggal||'').slice(0,7) === bln);
+    return rows.filter(r => normalizeTanggal(r.Tanggal).slice(0,7) === bln);
   }
   if (periode === 'semester'){
     const { startYM, endYM } = semesterMonthRange();
     return rows.filter(r => {
-      const ym = (r.Tanggal||'').slice(0,7);
+      const ym = normalizeTanggal(r.Tanggal).slice(0,7);
       return ym && ym >= startYM && ym <= endYM;
     });
   }
@@ -1805,13 +1805,37 @@ $('#btnGenerateReport').addEventListener('click', () => {
    semester/semua tanggal), jadi rekap per semester & per bulan tinggal memilih
    periodenya. */
 
-/* Kode singkat di sel grid. Hadir = kosong, mengikuti kebiasaan lembar manual
-   (yang ditulis hanya siswa yang tidak masuk). */
+/* Kode singkat di sel grid. Hadir ditandai centang (✓), sedangkan Sakit/Izin/Alfa
+   ditandai huruf S/I/A seperti lembar manual — jadi sel yang benar-benar kosong
+   berarti memang belum ada catatan absensi untuk siswa & tanggal itu. */
 function absenKode(status){
   const s = String(status || '').trim().toLowerCase();
   if (s === 'sakit') return 'S';
   if (s === 'izin') return 'I';
   if (s === 'alpa' || s === 'alpha' || s === 'tanpa keterangan') return 'A';
+  if (s === 'hadir' || s === 'masuk' || s === 'h') return '✓';
+  return '';
+}
+/* Tanggal bisa datang dalam beberapa bentuk: 'yyyy-mm-dd' (format normal dari
+   backend), ISO lengkap dengan jam ('2026-09-15T00:00:00.000Z') kalau sel Sheet
+   tersimpan sebagai Date, atau 'dd/mm/yyyy' kalau pernah diketik manual di Sheet.
+   Semua dinormalkan ke 'yyyy-mm-dd' supaya cocok saat dipetakan ke kolom tanggal. */
+function normalizeTanggal(value){
+  if (!value) return '';
+  if (value instanceof Date && !isNaN(value)){
+    const p = n => String(n).padStart(2,'0');
+    return `${value.getFullYear()}-${p(value.getMonth()+1)}-${p(value.getDate())}`;
+  }
+  const s = String(value).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); // dd/mm/yyyy
+  if (m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  const d = new Date(s);
+  if (!isNaN(d)){
+    const p = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  }
   return '';
 }
 function daysInMonth(ym){
@@ -1869,13 +1893,15 @@ function buildAbsensiGridHtml(kelas, ym){
   const jml = daysInMonth(ym);
   const days = Array.from({length: jml}, (_,i) => i+1);
 
-  // Peta: kunci siswa + tanggal -> kode S/I/A
+  /* Peta: kunci siswa + tanggal -> kode (✓ / S / I / A). Tanggal dinormalkan dulu
+     lewat normalizeTanggal() supaya catatan yang tersimpan sebagai Date di Sheet
+     (mis. '2026-09-15T00:00:00.000Z') atau diketik 'dd/mm/yyyy' tetap terbaca. */
   const map = {};
   (STATE.absensi || []).forEach(r => {
-    const tgl = String(r.Tanggal || '').slice(0,10);
-    if (tgl.slice(0,7) !== ym) return;
+    const tgl = normalizeTanggal(r.Tanggal);
+    if (!tgl || tgl.slice(0,7) !== ym) return;
     const kode = absenKode(r.Status);
-    if (!kode) return; // Hadir tidak ditulis di grid
+    if (!kode) return;
     const day = parseInt(tgl.slice(8,10), 10);
     if (!day) return;
     map[absensiSiswaKey(r) + '#' + day] = kode;
@@ -1883,12 +1909,12 @@ function buildAbsensiGridHtml(kelas, ym){
 
   const body = siswa.map((s, i) => {
     const keys = siswaKeys(s);
-    const count = { S:0, I:0, A:0 };
+    const count = { S:0, I:0, A:0, '✓':0 };
     const cells = days.map(d => {
       let kode = '';
       for (const k of keys){ if (map[k + '#' + d]){ kode = map[k + '#' + d]; break; } }
       if (kode) count[kode]++;
-      return `<td class="ag-day">${kode}</td>`;
+      return `<td class="ag-day${kode === '✓' ? ' ag-hadir' : ''}">${kode}</td>`;
     }).join('');
     return `<tr>
       <td class="ag-no">${i+1}</td>
@@ -1937,7 +1963,7 @@ function buildAbsensiGridHtml(kelas, ym){
         <div class="ag-foot-row" style="padding-left:62px">PUTRI : <b>${putri}</b> Anak</div>
         <div class="ag-foot-row" style="padding-left:62px">TOTAL &nbsp;: <b>${siswa.length}</b> Anak</div>
         <div class="ag-foot-row" style="margin-top:8px"><b>KETERANGAN</b></div>
-        <div class="ag-foot-row">S : Sakit &nbsp; &nbsp; I : Izin &nbsp; &nbsp; A : Alfa</div>
+        <div class="ag-foot-row">&#10003; : Hadir &nbsp; &nbsp; S : Sakit &nbsp; &nbsp; I : Izin &nbsp; &nbsp; A : Alfa</div>
       </div>
       ${buildSignatureBlockHtml(true)}
     </div>`;
@@ -2008,7 +2034,7 @@ function buildAbsensiPerSiswaHtml(rows, kelas){
 function buildAbsensiPerBulanHtml(rows){
   const byMonth = {};
   rows.forEach(r => {
-    const ym = String(r.Tanggal || '').slice(0,7);
+    const ym = normalizeTanggal(r.Tanggal).slice(0,7);
     if (!ym) return;
     if (!byMonth[ym]) byMonth[ym] = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
     const st = String(r.Status||'').trim();
