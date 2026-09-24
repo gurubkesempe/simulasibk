@@ -303,6 +303,7 @@
                 <option value="pemanggilan_ortu">Rekap Pemanggilan Orang Tua</option>
                 <option value="home_visit">Rekap Home Visit</option>
                 <option value="individu">Laporan Per Siswa (Individu)</option>
+                <option value="siswa_lulus">Siswa Lulus (Alumni)</option>
               </select>
             </div>
             <div class="field hidden" id="reportAbsensiViewField">
@@ -318,6 +319,10 @@
             <div class="field" id="reportKelasField">
               <label>Kelas (opsional)</label>
               <select id="reportKelas" class="select select--full"><option value="">Semua Kelas</option></select>
+            </div>
+            <div class="field hidden" id="reportTahunLulusField">
+              <label>Tahun Lulus</label>
+              <select id="reportTahunLulus" class="select select--full"><option value="">Semua Tahun Lulus</option></select>
             </div>
             <div class="field hidden" id="reportSiswaField">
               <label>Pilih Siswa</label>
@@ -388,11 +393,15 @@
 
         <div class="card">
           <div class="card-head"><h3>Kelulusan</h3></div>
-          <p class="muted">Luluskan siswa kelas akhir yang benar-benar sudah lulus. Siswa yang diluluskan akan dikeluarkan dari Data Siswa — riwayat Absensi, Pelanggaran, Konseling, dan Kolaborasi yang sudah tercatat tetap tersimpan sebagai arsip.</p>
+          <p class="muted">Luluskan siswa kelas akhir yang benar-benar sudah lulus. Siswa yang diluluskan akan dikeluarkan dari Data Siswa dan otomatis masuk ke <b>Laporan &gt; Siswa Lulus (Alumni)</b> — riwayat Absensi, Pelanggaran, Konseling, dan Kolaborasi yang sudah tercatat tetap tersimpan sebagai arsip.</p>
           <div class="form-grid">
             <div class="field">
               <label>Kelas</label>
               <select id="lulusKelas" class="select select--full"><option value="">Pilih kelas...</option></select>
+            </div>
+            <div class="field">
+              <label>Tahun Kelulusan</label>
+              <input type="text" id="lulusTahun" class="select select--full" placeholder="Contoh: 2025/2026" />
             </div>
           </div>
           <div class="bulk-list-head">

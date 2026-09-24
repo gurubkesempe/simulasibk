@@ -19,13 +19,13 @@ function escapeHtml(value){
 }
 
 const TYPES = ['siswa','absensi','pelanggaran','konseling','kolaborasi'];
-const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], masterPelanggaran:[], guru:[], konselor:[] };
+const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[], masterPelanggaran:[], guru:[], konselor:[], siswaLulus:[] };
 
 /* URL Web App bawaan — diisi SEKALI oleh Admin BK saat pertama kali men-deploy
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzz6uBSgQoRae_yrCwdxXT82fHydybXEG6_dyPEQYAxKBEAdMy_ccojB7LX8SQrGYmt/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzt0Q8LiLvBj3hXNasmU8GlvkSzsh3cBtdYVEp_7dQBvWDv-X2y8GRd85KASRLyftPT/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -165,9 +165,10 @@ const RealAdapter = {
     if (!json.ok) throw new Error(json.error || 'Gagal melakukan kenaikan kelas');
     return json.data;
   },
-  /* Kelulusan: hapus banyak siswa terpilih sekaligus dari Data Siswa. */
-  async lulusSiswa(ids){
-    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'lulusSiswa', ids, token: API_TOKEN }) });
+  /* Kelulusan: pindahkan banyak siswa terpilih sekaligus dari Data Siswa ke arsip
+     "Siswa Lulus" (tampil di menu Laporan). */
+  async lulusSiswa(ids, tahunLulus){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'lulusSiswa', ids, tahunLulus, token: API_TOKEN }) });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Gagal melakukan kelulusan siswa');
     return json.data;
@@ -186,6 +187,7 @@ const DemoAdapter = {
     out.masterPelanggaran = this.read('masterPelanggaran');
     out.guru = this.read('guru');
     out.konselor = this.read('konselor');
+    out.siswaLulus = this.read('siswaLulus');
     out.pengaturan = await this.getSettings();
     return out;
   },
@@ -261,12 +263,20 @@ const DemoAdapter = {
     return { updated, kelasTujuan };
   },
   /* Padanan lulusSiswa di RealAdapter, murni di localStorage untuk mode demo. */
-  async lulusSiswa(ids){
+  async lulusSiswa(ids, tahunLulus){
     const idSet = new Set((ids||[]).map(String));
     const before = this.read('siswa');
     const after = before.filter(s => !idSet.has(String(s.ID)));
+    const tgl = new Date().toISOString().slice(0,10);
+    const arsip = this.read('siswaLulus');
+    before.filter(s => idSet.has(String(s.ID))).forEach((s, i) => {
+      arsip.push({ ID:'LUL-' + Date.now().toString(36).toUpperCase() + '-' + i, SiswaID:s.ID, NIS:s.NIS, Nama:s.Nama, Kelas:s.Kelas,
+        JenisKelamin:s.JenisKelamin, TempatTglLahir:s.TempatTglLahir, Alamat:s.Alamat, NamaOrtu:s.NamaOrtu, NoHPOrtu:s.NoHPOrtu,
+        Catatan:s.Catatan, TahunLulus:tahunLulus || '', TanggalLulus:tgl });
+    });
     this.write('siswa', after);
-    return { deleted: before.length - after.length };
+    this.write('siswaLulus', arsip);
+    return { deleted: before.length - after.length, archived: before.length - after.length };
   },
   seedIfEmpty(){
     if (this.read('siswa').length) return;
@@ -381,7 +391,10 @@ function uniqueClasses(){
   const set = new Set(STATE.siswa.map(s => s.Kelas).filter(Boolean));
   return Array.from(set).sort();
 }
-function siswaById(id){ return STATE.siswa.find(s => String(s.ID) === String(id)); }
+function siswaById(id){
+  return STATE.siswa.find(s => String(s.ID) === String(id))
+    || (STATE.siswaLulus || []).map(a => ({ ...a, ID: a.SiswaID })).find(a => String(a.ID) === String(id));
+}
 function isThisMonth(dateStr){
   if (!dateStr) return false;
   const d = new Date(dateStr); const now = new Date();
@@ -397,6 +410,7 @@ async function loadAll(){
     STATE.masterPelanggaran = data.masterPelanggaran || [];
     STATE.guru = data.guru || [];
     STATE.konselor = data.konselor || [];
+    STATE.siswaLulus = data.siswaLulus || [];
     applySettingsFromServer(data.pengaturan || {});
     populateClassFilters();
     renderCurrentPage();
@@ -439,13 +453,16 @@ function populateClassFilters(){
     el.value = current;
   });
   populateReportSiswaSelect();
+  populateLulusTahunOptions();
 }
 
 function populateReportSiswaSelect(){
   const el = $('#reportSiswa'); if (!el) return;
   const current = el.value;
   const sorted = STATE.siswa.slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
-  el.innerHTML = '<option value="">Pilih siswa...</option>' + sorted.map(s => `<option value="${escapeHtml(s.ID)}">${escapeHtml(s.Nama)} — ${escapeHtml(s.Kelas)}</option>`).join('');
+  const alumni = (STATE.siswaLulus || []).slice().sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
+  el.innerHTML = '<option value="">Pilih siswa...</option>' + sorted.map(s => `<option value="${escapeHtml(s.ID)}">${escapeHtml(s.Nama)} — ${escapeHtml(s.Kelas)}</option>`).join('')
+    + (alumni.length ? `<optgroup label="Siswa Lulus (Alumni)">${alumni.map(a => `<option value="${escapeHtml(a.SiswaID)}">${escapeHtml(a.Nama)} — Lulus ${escapeHtml(a.TahunLulus || '')}</option>`).join('')}</optgroup>` : '');
   el.value = current;
 }
 
@@ -461,6 +478,7 @@ function populateReportSiswaSelect(){
    assertIsAdmin di Code.gs), dan menu ini pun disembunyikan untuk Guru
    Mapel & Konselor di applyRoleUI(). */
 function renderKenaikan(){
+  const lt = $('#lulusTahun'); if (lt && !lt.value) lt.value = SCHOOL_YEAR || '';
   const classes = uniqueClasses();
   const kelasOptHtml = classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
 
@@ -572,16 +590,24 @@ $('#btnLuluskan')?.addEventListener('click', async () => {
   if (!kelas){ toast('Pilih kelas terlebih dahulu.', 'error'); return; }
   const checkedIds = $all('.lulus-siswa-check:checked').map(cb => cb.value);
   if (!checkedIds.length){ toast('Centang minimal satu siswa untuk diluluskan.', 'error'); return; }
-  if (!confirm(`Luluskan ${checkedIds.length} siswa dari kelas ${kelas}? Siswa yang diluluskan akan dikeluarkan dari Data Siswa. Tindakan ini tidak dapat dibatalkan.`)) return;
+  const tahunLulus = ($('#lulusTahun')?.value || '').trim() || SCHOOL_YEAR || String(new Date().getFullYear());
+  if (!confirm(`Luluskan ${checkedIds.length} siswa dari kelas ${kelas} (Tahun Lulus ${tahunLulus})? Siswa akan dikeluarkan dari Data Siswa dan dipindahkan ke laporan "Siswa Lulus". Riwayat BK mereka tetap tersimpan.`)) return;
 
   showLoading(true);
   try{
-    const result = await adapter.lulusSiswa(checkedIds);
+    const result = await adapter.lulusSiswa(checkedIds, tahunLulus);
+    const tgl = new Date().toISOString().slice(0,10);
+    STATE.siswa.filter(s => checkedIds.includes(String(s.ID))).forEach(s => {
+      STATE.siswaLulus.push({ ID:'LUL-' + s.ID, SiswaID:s.ID, NIS:s.NIS, Nama:s.Nama, Kelas:s.Kelas, JenisKelamin:s.JenisKelamin,
+        TempatTglLahir:s.TempatTglLahir, Alamat:s.Alamat, NamaOrtu:s.NamaOrtu, NoHPOrtu:s.NoHPOrtu, Catatan:s.Catatan,
+        TahunLulus:tahunLulus, TanggalLulus:tgl });
+    });
     STATE.siswa = STATE.siswa.filter(s => !checkedIds.includes(String(s.ID)));
     populateClassFilters();
+    populateLulusTahunOptions();
     renderKenaikan();
     renderDashboard();
-    toast(`${result?.deleted ?? checkedIds.length} siswa berhasil diluluskan dan dikeluarkan dari Data Siswa.`, 'success');
+    toast(`${result?.deleted ?? checkedIds.length} siswa berhasil diluluskan dan masuk ke Laporan > Siswa Lulus.`, 'success');
   }catch(err){
     toast(err.message, 'error');
   }finally{
@@ -1729,12 +1755,14 @@ const REPORT_COLUMNS = {
   konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut','TTD'],
   kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
   pemanggilan_ortu: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
-  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas']
+  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
+  siswa_lulus: ['NIS','Nama','Kelas','JenisKelamin','NamaOrtu','NoHPOrtu','TahunLulus','TanggalLulus']
 };
 const REPORT_TITLES = {
   siswa:'Data Siswa', absensi:'Rekap Absensi Siswa', pelanggaran:'Rekap Pelanggaran Siswa',
   konseling:'Rekap Sesi Konseling', kolaborasi:'Rekap Kolaborasi (Panggilan Ortu / Home Visit)',
-  pemanggilan_ortu:'Rekap Pemanggilan Orang Tua', home_visit:'Rekap Home Visit'
+  pemanggilan_ortu:'Rekap Pemanggilan Orang Tua', home_visit:'Rekap Home Visit',
+  siswa_lulus:'Laporan Siswa Lulus (Alumni)'
 };
 
 $('#reportPeriode').addEventListener('change', () => {
@@ -1749,6 +1777,11 @@ $('#reportPeriode').addEventListener('change', () => {
 });
 $('#reportType').addEventListener('change', () => {
   const isIndividu = $('#reportType').value === 'individu';
+  const isLulus = $('#reportType').value === 'siswa_lulus';
+  $('#reportTahunLulusField').classList.toggle('hidden', !isLulus);
+  $('#reportPeriodeField').classList.toggle('hidden', isLulus);
+  if (isLulus){ ['Tanggal','Bulan','Semester','TahunAjaran'].forEach(k => $(`#report${k}Field`).classList.add('hidden')); populateLulusTahunOptions(); }
+  if (!isLulus) $('#reportPeriode').dispatchEvent(new Event('change'));
   $('#reportKelasField').classList.toggle('hidden', isIndividu);
   $('#reportSiswaField').classList.toggle('hidden', !isIndividu);
   $('#reportRekapKelasWrap').style.display = isIndividu ? 'none' : '';
@@ -1772,7 +1805,7 @@ function syncAbsensiViewUI(){
     $('#reportTahunAjaranField').classList.add('hidden');
     $('#reportBulanField').classList.remove('hidden');
   }
-  $('#reportPeriodeField').classList.toggle('hidden', isGrid);
+  $('#reportPeriodeField').classList.toggle('hidden', isGrid || type === 'siswa_lulus');
   // Rekap per kelas otomatis sudah jadi isi laporannya sendiri pada bentuk
   // "Per Kelas"/"Grid", jadi checkbox rekap ringkas disembunyikan di situ.
   if (isAbsensi && (view === 'grid' || view === 'kelas')){
@@ -1923,6 +1956,12 @@ $('#btnGenerateReport').addEventListener('click', () => {
     return;
   }
 
+  /* ----- Siswa Lulus (arsip hasil menu Kenaikan & Kelulusan) ----- */
+  if (type === 'siswa_lulus'){
+    showReportPreview(buildSiswaLulusReportHtml());
+    return;
+  }
+
   /* ----- Rekap Absensi: grid bulanan / per siswa / per kelas / per bulan ----- */
   if (type === 'absensi'){
     const view = $('#reportAbsensiView').value;
@@ -1964,6 +2003,60 @@ $('#btnGenerateReport').addEventListener('click', () => {
   `;
   showReportPreview(html);
 });
+
+/* ================= LAPORAN SISWA LULUS =================
+   Sumber datanya arsip "SiswaLulus" yang otomatis terisi saat Admin menjalankan
+   Kelulusan di menu Kenaikan & Kelulusan. Kolom Kelas = kelas terakhir siswa
+   sebelum lulus. Bisa disaring per Tahun Lulus & Kelas. */
+function populateLulusTahunOptions(){
+  const el = $('#reportTahunLulus'); if (!el) return;
+  const current = el.value;
+  const years = Array.from(new Set((STATE.siswaLulus||[]).map(r => String(r.TahunLulus || '').trim()).filter(Boolean))).sort().reverse();
+  el.innerHTML = '<option value="">Semua Tahun Lulus</option>' + years.map(y => `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`).join('');
+  el.value = years.includes(current) ? current : '';
+  // isi juga daftar kelas laporan dengan kelas asal alumni (menyatu dengan kelas aktif)
+  const kel = $('#reportKelas');
+  if (kel){
+    const have = new Set($all('option', kel).map(o => o.value));
+    (STATE.siswaLulus||[]).map(r => r.Kelas).filter(k => k && !have.has(k)).forEach(k => { have.add(k); kel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`); });
+  }
+}
+function buildSiswaLulusReportHtml(){
+  const kelas = $('#reportKelas').value;
+  const tahun = $('#reportTahunLulus').value;
+  let rows = (STATE.siswaLulus || []).slice();
+  if (kelas) rows = rows.filter(r => r.Kelas === kelas);
+  if (tahun) rows = rows.filter(r => String(r.TahunLulus || '').trim() === tahun);
+  rows.sort((a,b) => String(b.TahunLulus||'').localeCompare(String(a.TahunLulus||'')) || String(a.Kelas||'').localeCompare(String(b.Kelas||''), 'id') || String(a.Nama||'').localeCompare(String(b.Nama||''), 'id'));
+  const cols = REPORT_COLUMNS.siswa_lulus;
+  const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+  const lk = rows.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('L')).length;
+  const pr = rows.filter(r => String(r.JenisKelamin).toUpperCase().startsWith('P')).length;
+  const groups = {};
+  rows.forEach(r => { const k = `${r.TahunLulus || '-'}||${r.Kelas || '-'}`; groups[k] = (groups[k] || 0) + 1; });
+  const recap = Object.keys(groups).length ? `
+    <h3 style="margin-top:22px">Rekap per Tahun Lulus &amp; Kelas</h3>
+    <table><thead><tr><th>Tahun Lulus</th><th>Kelas Terakhir</th><th>Jumlah Siswa</th></tr></thead><tbody>
+    ${Object.keys(groups).map(k => { const [t, c] = k.split('||'); return `<tr><td>${escapeHtml(t)}</td><td>${escapeHtml(c)}</td><td>${groups[k]}</td></tr>`; }).join('')}
+    </tbody></table>` : '';
+  return `
+    <h2>${REPORT_TITLES.siswa_lulus}</h2>
+    <div class="report-head-line"><span>Tahun Lulus: ${escapeHtml(tahun || 'Semua')} &nbsp;|&nbsp; Kelas Terakhir: ${escapeHtml(kelas || 'Semua Kelas')}</span><span>Dicetak: ${today}</span></div>
+    <div class="report-summary">
+      <div class="report-summary-item"><span class="label">Total Siswa Lulus</span><span class="value">${rows.length}</span></div>
+      <div class="report-summary-item"><span class="label">Laki-laki</span><span class="value">${lk}</span></div>
+      <div class="report-summary-item"><span class="label">Perempuan</span><span class="value">${pr}</span></div>
+    </div>
+    ${recap}
+    <h3 style="margin-top:22px">Rincian Data</h3>
+    <table>
+      <thead><tr><th>No</th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${rows.length ? rows.map((r,i) => `<tr><td>${i+1}</td>${cols.map(c => `<td>${c==='TanggalLulus'?fmtDate(r[c]):escapeHtml(r[c] ?? '-')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length+1}" style="text-align:center;color:#999">Belum ada siswa yang diluluskan</td></tr>`}
+      </tbody>
+    </table>
+    <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>`;
+}
 
 /* ================= REKAP ABSENSI (FORMAT LEMBAR ABSENSI SEKOLAH) =================
    Meniru lembar "ABSENSI KELAS" manual: satu baris per siswa, kolom tanggal 1–31,
@@ -2700,6 +2793,8 @@ function downloadFullBackup(){
     const ws = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([['(Belum ada data)']]);
     XLSX.utils.book_append_sheet(wb, ws, BACKUP_SHEET_NAMES[type] || type);
   });
+  const lulusRows = (STATE.siswaLulus || []).map(({ _row, ...clean }) => clean);
+  XLSX.utils.book_append_sheet(wb, lulusRows.length ? XLSX.utils.json_to_sheet(lulusRows) : XLSX.utils.aoa_to_sheet([['(Belum ada data)']]), 'SiswaLulus');
   const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
   XLSX.writeFile(wb, `Backup_BKDigital_${stamp}.xlsx`);
   toast('Backup berhasil diunduh.', 'success');
