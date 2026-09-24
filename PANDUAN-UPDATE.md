@@ -4,90 +4,47 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
-## -6. BARU — Ikon & Splash Screen otomatis pakai Logo Sekolah
+## -4. Update terbaru — Install sebagai Aplikasi (PWA) + ikon & splash pakai Logo Sekolah
 
-Ikon "Install App" (dan splash screen di Android) sekarang otomatis pakai **Logo
-Sekolah** yang diupload admin di menu Pengaturan — bukan ikon generik BK Digital lagi.
-Tidak perlu upload file ikon apapun ke GitHub: dibuat otomatis di browser dari logo
-yang tersimpan di Google Sheet masing-masing sekolah, jadi **setiap sekolah yang pakai
-kode yang sama otomatis dapat ikon sendiri-sendiri** sesuai logo mereka.
+**Tidak perlu ganti `Code.gs` untuk update ini** — murni penambahan file di sisi frontend.
 
-- **Android/Chrome/Edge:** ikon Install App & splash screen otomatis pakai logo,
-  begitu logo pertama kali tersimpan di perangkat itu (lewat login/Pengaturan).
-- **iPhone/iPad (Safari):** ikon Home Screen ("Add to Home Screen") ikut pakai logo.
-  Splash **layar pembuka** custom TIDAK didukung di iOS (keterbatasan Safari — perlu
-  gambar terpisah persis untuk tiap ukuran layar iPhone/iPad), jadi di iOS tetap
-  ada momen putih sesaat sebelum halaman termuat, seperti web pada umumnya.
-- **Penting:** karena ikon dibaca browser saat halaman dimuat, dan mengambil Logo
-  Sekolah tetap mensyaratkan login (demi keamanan data), di **perangkat yang benar-
-  benar baru & belum pernah login**, ikon "Install App" masih tampil default BK
-  Digital dulu. Begitu ada yang login sekali di perangkat itu, logo otomatis
-  tersimpan lokal dan kunjungan/install berikutnya langsung pakai logo sekolah.
+File baru: `manifest.json`, `sw.js`, `favicon.ico`, dan folder `icons/` (14 file ikon).
+Semua file ini WAJIB ikut di-upload ke folder yang sama dengan `index.html` di repo
+GitHub kamu, jangan cuma `index.html`/`script.js`/`style.css` saja seperti update
+sebelumnya — kalau file-file baru ini tidak ada, tombol "Install" tidak akan muncul.
 
-Tidak ada perubahan `Code.gs` di update ini — murni logika tampilan (`script.js`).
+Yang didapat:
+1. **Tombol "Install"** muncul di address bar Chrome/Edge (desktop). Setelah di-klik,
+   aplikasi terpasang dengan ikon sendiri di Desktop/Start Menu/taskbar, terbuka di
+   jendela sendiri tanpa address bar seperti aplikasi biasa (bukan cuma shortcut ke
+   browser).
+2. **Ikon aplikasi & splash screen otomatis memakai Logo Sekolah** yang sudah diupload
+   lewat menu Pengaturan → Profil Sekolah — bukan ikon generik "BK" bawaan. Ini
+   berjalan otomatis: begitu Logo Sekolah tersimpan di browser (baik dari cache
+   sebelumnya maupun baru dimuat dari Google Sheet), aplikasi diam-diam mengganti
+   referensi ikon PWA ke logo itu. Splash screen (layar loading singkat saat aplikasi
+   dibuka dari ikon yang sudah ter-install) di Android/Chrome dibuat otomatis oleh
+   peramban dari ikon + nama aplikasi ini — tidak ada file splash terpisah yang perlu
+   diatur manual.
+3. Kalau **belum ada Logo Sekolah** yang diupload sama sekali (browser baru pertama
+   kali buka aplikasi ini, localStorage masih kosong), ikon generik "BK" (teal, bubble
+   chat) dipakai dulu sebagai fallback sampai Logo Sekolah tersimpan.
+4. **Keterbatasan yang perlu diketahui**: kalau Logo Sekolah diganti/diupload SETELAH
+   aplikasi sudah pernah di-install duluan, ikon yang SUDAH terlanjur terpasang di
+   Desktop tidak otomatis berubah — perlu uninstall lalu install ulang supaya ikon
+   barunya kepakai. Ini keterbatasan bawaan peramban (Chrome/Edge memang tidak
+   mendukung update ikon PWA yang sudah terpasang), bukan bug di aplikasi ini.
+5. Resolusi Logo Sekolah yang diupload lewat Pengaturan sedikit dinaikkan (dari
+   maksimal 240px jadi 512px, tetap dijaga aman di bawah batas ukuran sel Google
+   Sheets) supaya ikonnya tetap tajam di layar resolusi tinggi.
 
-## -5. BARU — Bisa di-"Install" jadi ikon aplikasi (HP maupun Laptop/PC)
+Cara update: cukup timpa `index.html` dan `script.js` yang ada di paket ini ke repo
+kamu, DAN tambahkan file/folder baru (`manifest.json`, `sw.js`, `favicon.ico`,
+`icons/`) yang belum pernah ada sebelumnya. Setelah GitHub Pages selesai deploy ulang,
+buka aplikasinya dan **hard refresh** (Ctrl+Shift+R) supaya file lama di cache
+peramban tidak kepakai, baru coba tombol Install di address bar.
 
-Sekarang situs BK Digital bisa ditambahkan sebagai **ikon aplikasi**, baik di layar
-HP (Android — dan iPhone lewat Safari) maupun di Laptop/PC (Chrome/Edge) — sekali
-diklik langsung terbuka seperti aplikasi biasa, tanpa perlu buka browser & ketik URL.
-
-**File baru yang ditambahkan** (tidak mengubah `Code.gs`/data sama sekali):
-- `manifest.webmanifest` — nama, ikon, dan warna aplikasi untuk layar Home Screen.
-- `sw.js` — Service Worker minimal, cuma untuk (1) membuat situsnya "installable" dan
-  (2) menyimpan tampilan (HTML/CSS/JS/ikon) di cache browser supaya ikon yang sudah
-  di-install tetap bisa dibuka walau internet lambat. **Data siswa TIDAK pernah
-  disimpan di cache ini** — semua request ke Google Apps Script selalu langsung ke
-  jaringan, tidak pernah "nyangkut" di cache.
-- Folder `icons/` — ikon aplikasi di berbagai ukuran (192px, 512px, versi maskable
-  untuk Android, dan versi khusus iOS).
-
-**Cara pakai untuk staf sekolah:**
-- **Android (Chrome/Edge):** akan muncul tombol **"Install App"** di menu sidebar
-  aplikasi (atau ikon "⊕ Install" di address bar) — tinggal klik, ikon otomatis
-  muncul di Home Screen.
-- **iPhone/iPad (Safari):** belum ada tombol otomatis (keterbatasan Safari) — buka
-  Share (ikon kotak dengan panah ke atas) → **"Add to Home Screen"**.
-- **Laptop/PC (Chrome/Edge):** tombol **"Install App"** di sidebar akan muncul, atau
-  klik ikon install (⊕) di ujung kanan address bar — aplikasi akan terbuka di
-  jendelanya sendiri (tanpa tab/address bar browser), bisa di-pin ke taskbar.
-
-**Kalau ke depan kamu update `index.html`/`script.js`/`style.css` lagi:** naikkan
-angka `APP_VERSION` di baris paling atas `sw.js` (mis. `'v1'` → `'v2'`) supaya
-pengguna yang sudah install ikon ini otomatis dapat versi terbaru, bukan versi lama
-yang "nyangkut" di cache.
-
-## -4. PENTING (update sebelumnya) — Rekap Absensi format lembar sekolah
-
-Laporan **Rekap Absensi** sekarang punya pilihan baru **"Bentuk Rekap Absensi"** di
-halaman Laporan:
-
-1. **Grid Bulanan (format buku absensi)** — meniru lembar "ABSENSI KELAS" manual:
-   satu baris per siswa, kolom tanggal 1–31, sel diisi kode **S / I / A** (Hadir
-   sengaja dibiarkan kosong seperti di lembar aslinya), kolom **JUMLAH (S | I | A)**
-   dan **KETR** di ujung kanan, lalu rekap **PUTRA / PUTRI / TOTAL**, keterangan
-   kode, dan blok tanda tangan Guru BK. Wajib pilih **Kelas** + **Bulan**; otomatis
-   dicetak **landscape**. Semua siswa kelas itu tetap muncul barisnya walau belum
-   pernah dicatat absensinya.
-2. **Rekap per Siswa (per anak)** — satu baris per siswa: Hadir / Sakit / Izin /
-   Alpa, jumlah, dan **% kehadiran**, plus baris Total.
-3. **Rekap per Kelas** — total H/S/I/A tiap kelas untuk periode yang dipilih.
-4. **Rekap per Bulan** — bulan demi bulan; paling berguna kalau Periode dipilih
-   **Semester**, jadi satu semester terlihat dalam satu tabel.
-5. **Rincian Harian** — daftar catatan seperti versi sebelumnya (tidak berubah).
-
-Bentuk 2–4 mengikuti **Periode** yang dipilih (Harian / Bulanan / Semester / Semua
-Tanggal), jadi rekap per bulan & per semester tinggal ganti periodenya.
-
-Di **Pengaturan > Profil Sekolah** ada tiga isian baru untuk kaki laporan:
-**Kota/Tempat Tanda Tangan**, **Nama Guru BK**, dan **NIP Guru BK** (contoh hasil:
-"Sragi, 15 September 2026 / Guru BK / SURYA IHZA MAHISTA, S.Pd / NIP. -").
-
-Cukup ganti `index.html`, `script.js`, dan `style.css`. **Tidak ada perubahan
-`Code.gs` dan tidak ada perubahan struktur Sheet** — tiga isian baru tadi tersimpan
-sebagai baris key-value biasa di sheet **Pengaturan** yang sudah ada.
-
-## -3. PENTING (update sebelumnya) — Pengetatan Keamanan
+## -3. PENTING (update terbaru) — Pengetatan Keamanan
 
 Karena `DEFAULT_API_URL` tertanam langsung di `script.js` (jadi terlihat publik kalau
 repo GitHub-nya publik), update ini menambahkan:

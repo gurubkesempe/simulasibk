@@ -2,158 +2,6 @@
    BK DIGITAL — FRONTEND LOGIC
    ============================================================ */
 
-/* ---------------- PWA: Ikon & Splash Screen pakai Logo Sekolah ----------------
-   Ikon "Install App" dan splash screen (layar pembuka saat ikon dibuka dari
-   Home Screen) otomatis dibuat dari Logo Sekolah yang diupload admin di menu
-   Pengaturan (SCHOOL_LOGO) — bukan ikon generik bawaan. Tidak perlu upload
-   file ikon terpisah ke GitHub: manifest & apple-touch-icon di-generate ULANG
-   di BROWSER (lewat Blob URL berisi data gambar logo) setiap kali logo
-   berubah, jadi tiap sekolah yang pakai kode yang sama otomatis dapat ikon
-   sendiri-sendiri sesuai logo yang mereka upload di Sheet masing-masing.
-
-   Splash screen Android: begitu manifest terpasang dengan ikon 512x512 dari
-   logo sekolah, Chrome/Android OTOMATIS memakai ikon itu (di atas warna
-   background_color manifest) sebagai splash screen saat ikon di-tap dari Home
-   Screen — tidak perlu kode tambahan.
-   Splash screen iOS: Safari/iOS TIDAK membaca manifest untuk splash, dan
-   splash custom di iOS mensyaratkan gambar terpisah persis untuk tiap ukuran
-   layar iPhone/iPad (keterbatasan platform, bukan sesuatu yang bisa
-   diakali dari sini) — jadi di iOS yang otomatis ter-branding adalah ikon
-   Home Screen-nya (lewat apple-touch-icon di bawah), sementara momen splash
-   putih sesaat sebelum halaman termuat tetap ada seperti web biasa.
-
-   Catatan penting: link manifest/ikon dibaca browser SAAT HALAMAN DIMUAT.
-   SCHOOL_LOGO baru tersedia SETELAH admin pernah login & memuat Pengaturan
-   di perangkat itu (lalu otomatis tersimpan di localStorage untuk kunjungan
-   berikutnya) — karena getSettings tetap mensyaratkan token/sesi valid demi
-   keamanan (lihat Code.gs). Jadi di perangkat yang BENAR-BENAR baru & belum
-   pernah login, ikon "Install App" masih tampil default BK Digital dulu;
-   begitu ada yang login sekali di perangkat itu, kunjungan/install
-   berikutnya otomatis pakai logo sekolah. */
-function loadImageFromDataUrl(dataUrl){
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Gagal memuat logo'));
-    img.src = dataUrl;
-  });
-}
-
-/* Menggambar logo (rasio apa pun) di tengah kanvas persegi berlatar putih,
-   supaya jadi ikon persegi yang konsisten walau logo asli tidak persegi.
-   padRatio menentukan jarak logo ke tepi (lebih besar = logo lebih kecil di
-   tengah) — dipakai lebih besar untuk versi "maskable" karena Android/HP
-   boleh memotong ikon maskable jadi lingkaran/bentuk lain, jadi konten
-   penting (logonya) perlu ada "zona aman" lebih longgar di tengah. */
-async function squareIconDataUrl(logoDataUrl, size, padRatio){
-  const img = await loadImageFromDataUrl(logoDataUrl);
-  const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, size, size);
-  const inner = size * (1 - padRatio * 2);
-  const scale = Math.min(inner / img.naturalWidth, inner / img.naturalHeight);
-  const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
-  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-  return canvas.toDataURL('image/png');
-}
-
-let pwaManifestBlobUrl = null;
-async function applyBrandingToPWA(){
-  if (!SCHOOL_LOGO) return; // belum ada logo -> biarkan pakai ikon default bawaan (icons/*.png)
-  try{
-    const [icon192, icon512, iconMask192, iconMask512, icon180, icon32, icon16] = await Promise.all([
-      squareIconDataUrl(SCHOOL_LOGO, 192, 0.08),
-      squareIconDataUrl(SCHOOL_LOGO, 512, 0.08),
-      squareIconDataUrl(SCHOOL_LOGO, 192, 0.20), // maskable: padding lebih longgar (zona aman)
-      squareIconDataUrl(SCHOOL_LOGO, 512, 0.20),
-      squareIconDataUrl(SCHOOL_LOGO, 180, 0.10), // apple-touch-icon
-      squareIconDataUrl(SCHOOL_LOGO, 32, 0.05),
-      squareIconDataUrl(SCHOOL_LOGO, 16, 0.05)
-    ]);
-
-    const appName = SCHOOL_NAME ? `${SCHOOL_NAME} — BK Digital` : 'BK Digital — Sistem Bimbingan Konseling';
-    const shortName = SCHOOL_NAME ? SCHOOL_NAME.slice(0, 24) : 'BK Digital';
-    const manifest = {
-      name: appName,
-      short_name: shortName,
-      description: 'Sistem Bimbingan & Konseling Sekolah',
-      start_url: './index.html',
-      scope: './',
-      display: 'standalone',
-      orientation: 'portrait-primary',
-      background_color: '#F4F6F5',
-      theme_color: '#2F6F63',
-      lang: 'id',
-      dir: 'ltr',
-      icons: [
-        { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
-        { src: iconMask192, sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-        { src: iconMask512, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
-      ]
-    };
-
-    if (pwaManifestBlobUrl) URL.revokeObjectURL(pwaManifestBlobUrl);
-    pwaManifestBlobUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
-
-    const linkManifest = document.querySelector('link[rel="manifest"]');
-    const linkAppleIcon = document.querySelector('link[rel="apple-touch-icon"]');
-    const linkIcon32 = document.querySelector('link[rel="icon"][sizes="32x32"]');
-    const linkIcon16 = document.querySelector('link[rel="icon"][sizes="16x16"]');
-    if (linkManifest) linkManifest.setAttribute('href', pwaManifestBlobUrl);
-    if (linkAppleIcon) linkAppleIcon.setAttribute('href', icon180);
-    if (linkIcon32) linkIcon32.setAttribute('href', icon32);
-    if (linkIcon16) linkIcon16.setAttribute('href', icon16);
-  }catch(brandErr){
-    // Logo gagal diproses (mis. data korup) -> diamkan, tetap pakai ikon default bawaan.
-  }
-}
-document.addEventListener('DOMContentLoaded', applyBrandingToPWA); // pakai logo dari cache (localStorage) kalau ada, sejak halaman pertama dimuat
-
-/* ---------------- PWA: daftarkan Service Worker + tombol "Install App" ----------------
-   Mendaftarkan sw.js supaya browser (terutama Chrome/Edge di Android maupun
-   Laptop/PC) menganggap situs ini "installable" — muncul ikon aplikasi yang
-   bisa ditambahkan ke Home Screen (HP) atau di-pin sebagai app tersendiri
-   (Laptop/PC), lepas dari tab browser biasa. Dibungkus try/catch dan dicek
-   dulu 'serviceWorker' in navigator supaya browser lama yang tidak dukung
-   PWA tetap bisa pakai aplikasi ini seperti biasa (fitur ini optional,
-   bukan syarat aplikasi bisa jalan). */
-if ('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {
-      // Gagal daftar SW (mis. dibuka dari file:// bukan http/https) -> diamkan,
-      // aplikasi tetap jalan normal tanpa fitur install/offline shell.
-    });
-  });
-}
-
-/* Chrome/Edge (Android & Desktop) menahan prompt "Install" bawaan browser
-   lewat event ini, supaya kita bisa munculkan tombol "Install App" sendiri
-   di dalam UI (lebih jelas & konsisten dengan desain aplikasi) daripada
-   mengandalkan ikon kecil di address bar yang sering tidak disadari orang. */
-let deferredInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.remove('hidden'));
-});
-async function triggerInstallApp(){
-  if (!deferredInstallPrompt) return;
-  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.add('hidden'));
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-}
-window.addEventListener('appinstalled', () => {
-  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.add('hidden'));
-  deferredInstallPrompt = null;
-});
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.install-app-btn').forEach(btn => btn.addEventListener('click', triggerInstallApp));
-});
-
 /* Escape data siswa/guru sebelum dimasukkan ke innerHTML, supaya data yang berisi
    karakter HTML (mis. "<", ">", nama yang mengandung tag) tidak dieksekusi sebagai
    kode di browser pengguna lain (mencegah stored XSS). SELALU pakai fungsi ini
@@ -195,21 +43,23 @@ let currentPage = 'dashboard';
 let charts = {};
 
 /* ---------------- PROFIL SEKOLAH ----------------
-   Disimpan di localStorage saja (murni tampilan), tidak dikirim ke Google Sheet,
-   supaya tidak perlu mengubah struktur backend. Logo disimpan sebagai base64
-   data URL agar bisa langsung ditampilkan tanpa perlu hosting file terpisah. */
+   Nama & Tahun Pelajaran tersimpan di Google Sheet lewat getSettings/saveSettings
+   (lihat applySettingsFromServer di bawah) supaya muncul lagi di perangkat lain;
+   salinannya di-cache di localStorage supaya tampil instan sebelum data server
+   selesai dimuat. Logo disimpan sebagai base64 data URL agar bisa langsung
+   ditampilkan/dipakai sebagai ikon PWA tanpa perlu hosting file terpisah. */
 let SCHOOL_NAME = localStorage.getItem('bk_school_name') || '';
 let SCHOOL_YEAR = localStorage.getItem('bk_school_year') || '';
 let SCHOOL_LOGO = localStorage.getItem('bk_school_logo') || '';
-/* Dipakai untuk blok tanda tangan di kaki laporan cetak (mis. "Sragi, 15 September 2026 /
-   Guru BK / SURYA IHZA MAHISTA, S.Pd / NIP. -"), mengikuti format lembar absensi manual
-   sekolah. Ikut tersimpan di sheet "Pengaturan" seperti profil sekolah lainnya. */
-let SCHOOL_CITY = localStorage.getItem('bk_school_city') || '';
-let SCHOOL_BK_NAME = localStorage.getItem('bk_school_bk_name') || '';
-let SCHOOL_BK_NIP = localStorage.getItem('bk_school_bk_nip') || '';
+// Terapkan branding PWA sedini mungkin (bahkan sebelum login), memakai logo
+// dari sesi sebelumnya yang tersimpan di cache localStorage — supaya kalau
+// peramban menawarkan "Install" duluan sebelum pengguna sempat login, ikon
+// yang dipasang tetap logo sekolah, bukan ikon generik.
+applyDynamicPwaBranding();
 
 function renderSchoolProfile(){
   const bar = $('#schoolProfileBar');
+  applyDynamicPwaBranding();
   if (!bar) return;
   const hasAny = SCHOOL_NAME || SCHOOL_YEAR || SCHOOL_LOGO;
   bar.style.display = hasAny ? 'flex' : 'none';
@@ -223,6 +73,72 @@ function renderSchoolProfile(){
     img.style.display = 'none'; icon.style.display = 'block';
   }
   document.title = SCHOOL_NAME ? `BK Digital — ${SCHOOL_NAME}` : 'BK Digital — Sistem Bimbingan Konseling';
+}
+
+/* ---------------- PWA DINAMIS: ikon & splash screen pakai Logo Sekolah ----------------
+   manifest.json (file statis, ikon generik "BK") dipakai sebagai fallback untuk
+   kunjungan pertama sebelum Logo Sekolah tersimpan di browser ini. Begitu Logo
+   Sekolah tersedia (dari cache localStorage ATAU dari Google Sheet), tag
+   <link rel="manifest"> ditukar ke manifest baru yang dibuat on-the-fly (lewat
+   Blob URL) dengan ikon = Logo Sekolah, supaya saat "Install" dipakai, ikon
+   aplikasi terpasang pakai logo sekolah. Splash screen Android/desktop Chrome
+   otomatis dibuat peramban dari kombinasi ikon + nama + background_color
+   manifest ini — tidak ada file splash screen terpisah yang perlu diatur.
+   Catatan: ini hanya efektif kalau berjalan SEBELUM peramban selesai menilai
+   kelayakan install (biasa beberapa detik setelah halaman terbuka), makanya
+   dipanggil dari renderSchoolProfile() yang jalan sedini mungkin dari cache
+   localStorage. Kalau logo diganti SETELAH aplikasi sudah ter-install
+   sebelumnya, ikon yang sudah terpasang di Desktop baru ikut berganti pada
+   pemasangan ulang berikutnya — ini keterbatasan bawaan peramban, bukan bug
+   aplikasi. */
+let _dynamicManifestUrl = null;
+function applyDynamicPwaBranding(){
+  const link = document.querySelector('link[rel="manifest"]');
+  if (!link) return;
+  if (!SCHOOL_LOGO){
+    if (link.dataset.dynamic === '1'){
+      link.setAttribute('href', 'manifest.json');
+      delete link.dataset.dynamic;
+      if (_dynamicManifestUrl){ URL.revokeObjectURL(_dynamicManifestUrl); _dynamicManifestUrl = null; }
+    }
+    return;
+  }
+  try{
+    const shortName = (SCHOOL_NAME || 'BK Digital').slice(0, 30);
+    const manifest = {
+      name: SCHOOL_NAME ? `BK Digital — ${SCHOOL_NAME}` : 'BK Digital — Sistem Bimbingan Konseling',
+      short_name: shortName,
+      description: 'Aplikasi pencatatan Bimbingan & Konseling sekolah.',
+      id: './',
+      start_url: './index.html',
+      scope: './',
+      display: 'standalone',
+      orientation: 'any',
+      background_color: '#F5F7F8',
+      theme_color: '#2F6F63',
+      lang: 'id',
+      dir: 'ltr',
+      // Logo Sekolah dipakai apa adanya sebagai satu-satunya ikon (dideklarasikan
+      // di beberapa ukuran nominal supaya peramban tetap menganggapnya valid untuk
+      // berbagai konteks/resolusi). Sengaja TIDAK dideklarasikan sebagai
+      // "maskable" karena logo sekolah belum tentu punya area aman di tepi untuk
+      // dipotong bentuk lingkaran/kotak oleh OS — dibiarkan pakai bentuk "any"
+      // supaya peramban menerapkan bingkai amannya sendiri secara otomatis.
+      icons: [
+        { src: SCHOOL_LOGO, sizes: '192x192', type: 'image/jpeg', purpose: 'any' },
+        { src: SCHOOL_LOGO, sizes: '512x512', type: 'image/jpeg', purpose: 'any' }
+      ]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    const url = URL.createObjectURL(blob);
+    const oldUrl = _dynamicManifestUrl;
+    link.setAttribute('href', url);
+    link.dataset.dynamic = '1';
+    _dynamicManifestUrl = url;
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+  }catch(err){
+    // Diam-diam diabaikan — worst case, ikon PWA tetap pakai default generik "BK".
+  }
 }
 
 /* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
@@ -369,18 +285,12 @@ const DemoAdapter = {
     return {
       NamaSekolah: localStorage.getItem('bk_school_name') || '',
       TahunPelajaran: localStorage.getItem('bk_school_year') || '',
-      LogoSekolah: localStorage.getItem('bk_school_logo') || '',
-      KotaSekolah: localStorage.getItem('bk_school_city') || '',
-      NamaGuruBK: localStorage.getItem('bk_school_bk_name') || '',
-      NipGuruBK: localStorage.getItem('bk_school_bk_nip') || ''
+      LogoSekolah: localStorage.getItem('bk_school_logo') || ''
     };
   },
   async saveSettings(data){
     if (data.NamaSekolah !== undefined) localStorage.setItem('bk_school_name', data.NamaSekolah);
     if (data.TahunPelajaran !== undefined) localStorage.setItem('bk_school_year', data.TahunPelajaran);
-    if (data.KotaSekolah !== undefined) localStorage.setItem('bk_school_city', data.KotaSekolah);
-    if (data.NamaGuruBK !== undefined) localStorage.setItem('bk_school_bk_name', data.NamaGuruBK);
-    if (data.NipGuruBK !== undefined) localStorage.setItem('bk_school_bk_nip', data.NipGuruBK);
     if (data.LogoSekolah !== undefined){
       if (data.LogoSekolah) localStorage.setItem('bk_school_logo', data.LogoSekolah);
       else localStorage.removeItem('bk_school_logo');
@@ -535,18 +445,11 @@ function applySettingsFromServer(map){
   SCHOOL_NAME = map.NamaSekolah || '';
   SCHOOL_YEAR = map.TahunPelajaran || '';
   SCHOOL_LOGO = map.LogoSekolah || '';
-  SCHOOL_CITY = map.KotaSekolah || '';
-  SCHOOL_BK_NAME = map.NamaGuruBK || '';
-  SCHOOL_BK_NIP = map.NipGuruBK || '';
-  localStorage.setItem('bk_school_city', SCHOOL_CITY);
-  localStorage.setItem('bk_school_bk_name', SCHOOL_BK_NAME);
-  localStorage.setItem('bk_school_bk_nip', SCHOOL_BK_NIP);
   localStorage.setItem('bk_school_name', SCHOOL_NAME);
   localStorage.setItem('bk_school_year', SCHOOL_YEAR);
   if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
   else localStorage.removeItem('bk_school_logo');
   renderSchoolProfile();
-  applyBrandingToPWA();
 }
 
 function populateClassFilters(){
@@ -1731,42 +1634,12 @@ $('#reportType').addEventListener('change', () => {
   $('#reportKelasField').classList.toggle('hidden', isIndividu);
   $('#reportSiswaField').classList.toggle('hidden', !isIndividu);
   $('#reportRekapKelasWrap').style.display = isIndividu ? 'none' : '';
-  syncAbsensiViewUI();
 });
-
-/* Pilihan "Bentuk Rekap Absensi" hanya relevan saat Jenis Laporan = Rekap Absensi.
-   Khusus bentuk "Grid Bulanan" (meniru lembar absensi manual sekolah), periode
-   otomatis dikunci ke Bulanan karena satu lembar grid memang selalu mewakili
-   satu bulan penuh (kolom tanggal 1–31). */
-function syncAbsensiViewUI(){
-  const type = $('#reportType').value;
-  const isAbsensi = type === 'absensi';
-  const view = $('#reportAbsensiView').value;
-  $('#reportAbsensiViewField').classList.toggle('hidden', !isAbsensi);
-  const isGrid = isAbsensi && view === 'grid';
-  if (isGrid){
-    $('#reportPeriode').value = 'bulanan';
-    $('#reportTanggalField').classList.add('hidden');
-    $('#reportSemesterField').classList.add('hidden');
-    $('#reportTahunAjaranField').classList.add('hidden');
-    $('#reportBulanField').classList.remove('hidden');
-  }
-  $('#reportPeriodeField').classList.toggle('hidden', isGrid);
-  // Rekap per kelas otomatis sudah jadi isi laporannya sendiri pada bentuk
-  // "Per Kelas"/"Grid", jadi checkbox rekap ringkas disembunyikan di situ.
-  if (isAbsensi && (view === 'grid' || view === 'kelas')){
-    $('#reportRekapKelasWrap').style.display = 'none';
-  } else if (type !== 'individu'){
-    $('#reportRekapKelasWrap').style.display = '';
-  }
-}
-$('#reportAbsensiView').addEventListener('change', syncAbsensiViewUI);
 (function initReportDefaults(){
   const today = new Date();
   $('#reportTanggal').value = today.toISOString().slice(0,10);
   $('#reportBulan').value = today.toISOString().slice(0,7);
   $('#reportTahunAjaran').value = SCHOOL_YEAR || '';
-  syncAbsensiViewUI();
 })();
 
 /* Ubah "2025/2026" (atau "2025-2026", "2025 2026") jadi { y1:2025, y2:2026 }.
@@ -1814,17 +1687,17 @@ function filterByPeriode(rows, type){
   if (periode === 'harian'){
     const tgl = $('#reportTanggal').value;
     if (!tgl) return rows;
-    return rows.filter(r => normalizeTanggal(r.Tanggal) === tgl);
+    return rows.filter(r => (r.Tanggal||'').slice(0,10) === tgl);
   }
   if (periode === 'bulanan'){
     const bln = $('#reportBulan').value; // yyyy-mm
     if (!bln) return rows;
-    return rows.filter(r => normalizeTanggal(r.Tanggal).slice(0,7) === bln);
+    return rows.filter(r => (r.Tanggal||'').slice(0,7) === bln);
   }
   if (periode === 'semester'){
     const { startYM, endYM } = semesterMonthRange();
     return rows.filter(r => {
-      const ym = normalizeTanggal(r.Tanggal).slice(0,7);
+      const ym = (r.Tanggal||'').slice(0,7);
       return ym && ym >= startYM && ym <= endYM;
     });
   }
@@ -1898,19 +1771,11 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
       ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
     `;
-    showReportPreview(html);
+    $('#reportPreview').innerHTML = html;
+    $('#reportPreviewCard').style.display = 'block';
+    $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
+    setTimeout(() => window.print(), 400);
     return;
-  }
-
-  /* ----- Rekap Absensi: grid bulanan / per siswa / per kelas / per bulan ----- */
-  if (type === 'absensi'){
-    const view = $('#reportAbsensiView').value;
-    if (view !== 'rincian'){
-      const html = buildAbsensiReportHtml(view);
-      if (html === null) return; // validasi gagal, pesan sudah ditampilkan
-      showReportPreview(html, view === 'grid');
-      return;
-    }
   }
 
   const kelas = $('#reportKelas').value;
@@ -1941,333 +1806,11 @@ $('#btnGenerateReport').addEventListener('click', () => {
     </table>`}
     <p style="margin-top:24px;font-size:12px;color:#999">Total data: ${rows.length}</p>
   `;
-  showReportPreview(html);
-});
-
-/* ================= REKAP ABSENSI (FORMAT LEMBAR ABSENSI SEKOLAH) =================
-   Meniru lembar "ABSENSI KELAS" manual: satu baris per siswa, kolom tanggal 1–31,
-   sel diisi kode S/I/A (Hadir sengaja dibiarkan kosong seperti di lembar aslinya),
-   lalu kolom JUMLAH (S | I | A) dan KETR di ujung kanan, ditutup rekap jumlah
-   siswa Putra/Putri serta blok tanda tangan Guru BK.
-   Empat bentuk rekap yang tersedia:
-   - grid   : grid bulanan per kelas (persis lembar manual)
-   - siswa  : rekap per anak (satu baris per siswa, total H/S/I/A + % kehadiran)
-   - kelas  : rekap per kelas (total H/S/I/A tiap kelas)
-   - bulan  : rekap per bulan (berguna untuk melihat satu semester sekaligus)
-   Semua bentuk selain "grid" mengikuti Periode yang dipilih (harian/bulanan/
-   semester/semua tanggal), jadi rekap per semester & per bulan tinggal memilih
-   periodenya. */
-
-/* Kode singkat di sel grid. Hadir ditandai centang (✓), sedangkan Sakit/Izin/Alfa
-   ditandai huruf S/I/A seperti lembar manual — jadi sel yang benar-benar kosong
-   berarti memang belum ada catatan absensi untuk siswa & tanggal itu. */
-function absenKode(status){
-  const s = String(status || '').trim().toLowerCase();
-  if (s === 'sakit') return 'S';
-  if (s === 'izin') return 'I';
-  if (s === 'alpa' || s === 'alpha' || s === 'tanpa keterangan') return 'A';
-  if (s === 'hadir' || s === 'masuk' || s === 'h') return '✓';
-  return '';
-}
-/* Tanggal bisa datang dalam beberapa bentuk: 'yyyy-mm-dd' (format normal dari
-   backend), ISO lengkap dengan jam ('2026-09-15T00:00:00.000Z') kalau sel Sheet
-   tersimpan sebagai Date, atau 'dd/mm/yyyy' kalau pernah diketik manual di Sheet.
-   Semua dinormalkan ke 'yyyy-mm-dd' supaya cocok saat dipetakan ke kolom tanggal. */
-function normalizeTanggal(value){
-  if (!value) return '';
-  if (value instanceof Date && !isNaN(value)){
-    const p = n => String(n).padStart(2,'0');
-    return `${value.getFullYear()}-${p(value.getMonth()+1)}-${p(value.getDate())}`;
-  }
-  const s = String(value).trim();
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); // dd/mm/yyyy
-  if (m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
-  const d = new Date(s);
-  if (!isNaN(d)){
-    const p = n => String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
-  }
-  return '';
-}
-function daysInMonth(ym){
-  const [y,m] = String(ym||'').split('-').map(Number);
-  if (!y || !m) return 31;
-  return new Date(y, m, 0).getDate();
-}
-function isPutra(s){ return String(s.JenisKelamin||'').trim().toUpperCase().startsWith('L'); }
-function isPutri(s){ return String(s.JenisKelamin||'').trim().toUpperCase().startsWith('P'); }
-function sortSiswaByNama(list){
-  return list.slice().sort((a,b) => String(a.Nama||'').localeCompare(String(b.Nama||''), 'id'));
-}
-/* Daftar siswa yang jadi baris rekap: diambil dari Data Siswa (bukan dari catatan
-   absensi) supaya siswa yang selalu hadir / belum pernah dicatat pun tetap muncul
-   barisnya — sama seperti lembar absensi manual yang memuat seluruh siswa kelas. */
-function siswaForReport(kelas){
-  const list = (STATE.siswa || []).filter(s => !kelas || s.Kelas === kelas);
-  return sortSiswaByNama(list);
-}
-/* Cocokkan catatan absensi ke siswa: utamakan SiswaID, tapi tetap bisa jatuh ke
-   pencocokan Nama+Kelas supaya data lama yang SiswaID-nya kosong tidak hilang. */
-function absensiSiswaKey(row){
-  return String(row.SiswaID || '').trim() || ('nama:' + String(row.Nama||'').trim().toLowerCase() + '|' + String(row.Kelas||'').trim().toLowerCase());
-}
-function siswaKeys(s){
-  return [String(s.ID||'').trim(), 'nama:' + String(s.Nama||'').trim().toLowerCase() + '|' + String(s.Kelas||'').trim().toLowerCase()];
-}
-
-function buildAbsensiReportHtml(view){
-  const kelas = $('#reportKelas').value;
-  if (view === 'grid'){
-    if (!kelas){ toast('Pilih Kelas terlebih dahulu untuk Grid Bulanan (satu lembar = satu kelas).', 'error'); return null; }
-    const ym = $('#reportBulan').value;
-    if (!ym){ toast('Pilih Bulan terlebih dahulu.', 'error'); return null; }
-    return buildAbsensiGridHtml(kelas, ym);
-  }
-  let rows = filterByPeriode((STATE.absensi || []).filter(r => !kelas || r.Kelas === kelas), 'absensi');
-  const headLine = `<div class="report-head-line"><span>Kelas: ${escapeHtml(kelas || 'Semua Kelas')} &nbsp;|&nbsp; Periode: ${periodeLabel()}</span><span>Dicetak: ${todayLabel()}</span></div>`;
-  if (view === 'siswa'){
-    return `<h2>Rekap Absensi Per Siswa</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
-      ${buildAbsensiPerSiswaHtml(rows, kelas)}${buildSignatureBlockHtml()}`;
-  }
-  if (view === 'kelas'){
-    return `<h2>Rekap Absensi Per Kelas</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
-      ${buildKelasRecapHtml('absensi', rows) || '<p style="text-align:center;color:#999;margin-top:16px">Tidak ada data absensi pada periode ini</p>'}${buildSignatureBlockHtml()}`;
-  }
-  // view === 'bulan'
-  return `<h2>Rekap Absensi Per Bulan</h2>${headLine}${buildReportSummaryHtml('absensi', rows)}
-    ${buildAbsensiPerBulanHtml(rows)}${buildSignatureBlockHtml()}`;
-}
-
-/* Grid bulanan satu kelas — tiruan lembar "ABSENSI KELAS" pada lampiran. */
-function buildAbsensiGridHtml(kelas, ym){
-  const siswa = siswaForReport(kelas);
-  const jml = daysInMonth(ym);
-  const days = Array.from({length: jml}, (_,i) => i+1);
-
-  /* Peta: kunci siswa + tanggal -> kode (✓ / S / I / A). Tanggal dinormalkan dulu
-     lewat normalizeTanggal() supaya catatan yang tersimpan sebagai Date di Sheet
-     (mis. '2026-09-15T00:00:00.000Z') atau diketik 'dd/mm/yyyy' tetap terbaca. */
-  const map = {};
-  (STATE.absensi || []).forEach(r => {
-    const tgl = normalizeTanggal(r.Tanggal);
-    if (!tgl || tgl.slice(0,7) !== ym) return;
-    const kode = absenKode(r.Status);
-    if (!kode) return;
-    const day = parseInt(tgl.slice(8,10), 10);
-    if (!day) return;
-    map[absensiSiswaKey(r) + '#' + day] = kode;
-  });
-
-  const body = siswa.map((s, i) => {
-    const keys = siswaKeys(s);
-    const count = { S:0, I:0, A:0, '✓':0 };
-    const cells = days.map(d => {
-      let kode = '';
-      for (const k of keys){ if (map[k + '#' + d]){ kode = map[k + '#' + d]; break; } }
-      if (kode) count[kode]++;
-      return `<td class="ag-day${kode === '✓' ? ' ag-hadir' : ''}">${kode}</td>`;
-    }).join('');
-    return `<tr>
-      <td class="ag-no">${i+1}</td>
-      <td class="ag-nama">${escapeHtml(s.Nama || '-')}</td>
-      <td class="ag-lp">${escapeHtml(String(s.JenisKelamin||'').trim().toUpperCase().charAt(0) || '-')}</td>
-      ${cells}
-      <td class="ag-sum">${count.S || ''}</td>
-      <td class="ag-sum">${count.I || ''}</td>
-      <td class="ag-sum">${count.A || ''}</td>
-      <td class="ag-ketr"></td>
-    </tr>`;
-  }).join('');
-
-  const putra = siswa.filter(isPutra).length;
-  const putri = siswa.filter(isPutri).length;
-
-  return `
-    <h2 class="ag-title">ABSENSI KELAS</h2>
-    ${SCHOOL_NAME ? `<p class="ag-school">${escapeHtml(SCHOOL_NAME)}${SCHOOL_YEAR ? ` — Tahun Pelajaran ${escapeHtml(SCHOOL_YEAR)}` : ''}</p>` : ''}
-    <div class="ag-headline">
-      <span>KELAS : <b>${escapeHtml(kelas)}</b></span>
-      <span>BULAN : <b>${escapeHtml(monthLabel(ym))}</b></span>
-    </div>
-    <table class="absensi-grid">
-      <thead>
-        <tr>
-          <th rowspan="2" class="ag-no">NO</th>
-          <th rowspan="2" class="ag-nama">NAMA PESERTA DIDIK</th>
-          <th rowspan="2" class="ag-lp">L/P</th>
-          <th colspan="${jml}">TANGGAL</th>
-          <th colspan="3">JUMLAH</th>
-          <th rowspan="2" class="ag-ketr">KETR</th>
-        </tr>
-        <tr>
-          ${days.map(d => `<th class="ag-day">${d}</th>`).join('')}
-          <th class="ag-sum">S</th><th class="ag-sum">I</th><th class="ag-sum">A</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${siswa.length ? body : `<tr><td colspan="${jml+7}" style="text-align:center;color:#999">Belum ada siswa di kelas ini</td></tr>`}
-      </tbody>
-    </table>
-    <div class="ag-foot">
-      <div class="ag-foot-left">
-        <div class="ag-foot-row"><b>JUMLAH</b> &nbsp; PUTRA : <b>${putra}</b> Anak</div>
-        <div class="ag-foot-row" style="padding-left:62px">PUTRI : <b>${putri}</b> Anak</div>
-        <div class="ag-foot-row" style="padding-left:62px">TOTAL &nbsp;: <b>${siswa.length}</b> Anak</div>
-        <div class="ag-foot-row" style="margin-top:8px"><b>KETERANGAN</b></div>
-        <div class="ag-foot-row">&#10003; : Hadir &nbsp; &nbsp; S : Sakit &nbsp; &nbsp; I : Izin &nbsp; &nbsp; A : Alfa</div>
-      </div>
-      ${buildSignatureBlockHtml(true)}
-    </div>`;
-}
-
-/* Rekap per anak: satu baris per siswa berisi total Hadir/Sakit/Izin/Alpa dan
-   persentase kehadiran terhadap jumlah hari yang tercatat untuk siswa itu. */
-function buildAbsensiPerSiswaHtml(rows, kelas){
-  const siswa = siswaForReport(kelas);
-  const byKey = {};
-  rows.forEach(r => {
-    const k = absensiSiswaKey(r);
-    if (!byKey[k]) byKey[k] = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-    const st = String(r.Status||'').trim();
-    if (byKey[k][st] !== undefined) byKey[k][st]++;
-    else if (absenKode(st) === 'A') byKey[k].Alpa++;
-  });
-
-  const total = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-  const body = siswa.map((s, i) => {
-    let c = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-    siswaKeys(s).forEach(k => {
-      if (byKey[k]) Object.keys(c).forEach(st => { c[st] += byKey[k][st]; });
-    });
-    const jumlah = c.Hadir + c.Sakit + c.Izin + c.Alpa;
-    const persen = jumlah ? Math.round((c.Hadir / jumlah) * 100) : 0;
-    Object.keys(total).forEach(st => { total[st] += c[st]; });
-    return `<tr>
-      <td style="text-align:center">${i+1}</td>
-      <td>${escapeHtml(s.NIS || '-')}</td>
-      <td>${escapeHtml(s.Nama || '-')}</td>
-      <td style="text-align:center">${escapeHtml(String(s.JenisKelamin||'-').trim().toUpperCase().charAt(0) || '-')}</td>
-      <td style="text-align:center">${escapeHtml(s.Kelas || '-')}</td>
-      <td style="text-align:center">${c.Hadir}</td>
-      <td style="text-align:center">${c.Sakit}</td>
-      <td style="text-align:center">${c.Izin}</td>
-      <td style="text-align:center">${c.Alpa}</td>
-      <td style="text-align:center">${jumlah}</td>
-      <td style="text-align:center">${jumlah ? persen + '%' : '-'}</td>
-    </tr>`;
-  }).join('');
-
-  const totalHari = total.Hadir + total.Sakit + total.Izin + total.Alpa;
-  return `
-    <h3 style="margin-top:22px">Rekap Per Siswa</h3>
-    <table>
-      <thead><tr>
-        <th>No</th><th>NIS</th><th>Nama</th><th>L/P</th><th>Kelas</th>
-        <th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alpa</th><th>Jumlah</th><th>% Hadir</th>
-      </tr></thead>
-      <tbody>
-        ${siswa.length ? body : `<tr><td colspan="11" style="text-align:center;color:#999">Tidak ada siswa</td></tr>`}
-        <tr style="font-weight:700;background:#f7f8f6">
-          <td colspan="5">Total</td>
-          <td style="text-align:center">${total.Hadir}</td>
-          <td style="text-align:center">${total.Sakit}</td>
-          <td style="text-align:center">${total.Izin}</td>
-          <td style="text-align:center">${total.Alpa}</td>
-          <td style="text-align:center">${totalHari}</td>
-          <td style="text-align:center">${totalHari ? Math.round((total.Hadir/totalHari)*100) + '%' : '-'}</td>
-        </tr>
-      </tbody>
-    </table>`;
-}
-
-/* Rekap per bulan — paling berguna saat Periode dipilih "Semester", supaya satu
-   semester terlihat bulan demi bulan dalam satu tabel. */
-function buildAbsensiPerBulanHtml(rows){
-  const byMonth = {};
-  rows.forEach(r => {
-    const ym = normalizeTanggal(r.Tanggal).slice(0,7);
-    if (!ym) return;
-    if (!byMonth[ym]) byMonth[ym] = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-    const st = String(r.Status||'').trim();
-    if (byMonth[ym][st] !== undefined) byMonth[ym][st]++;
-    else if (absenKode(st) === 'A') byMonth[ym].Alpa++;
-  });
-  const months = Object.keys(byMonth).sort();
-  const total = { Hadir:0, Sakit:0, Izin:0, Alpa:0 };
-  const body = months.map(ym => {
-    const c = byMonth[ym];
-    Object.keys(total).forEach(st => { total[st] += c[st]; });
-    const jml = c.Hadir + c.Sakit + c.Izin + c.Alpa;
-    return `<tr>
-      <td>${escapeHtml(monthLabel(ym))}</td>
-      <td style="text-align:center">${c.Hadir}</td>
-      <td style="text-align:center">${c.Sakit}</td>
-      <td style="text-align:center">${c.Izin}</td>
-      <td style="text-align:center">${c.Alpa}</td>
-      <td style="text-align:center">${jml}</td>
-      <td style="text-align:center">${jml ? Math.round((c.Hadir/jml)*100) + '%' : '-'}</td>
-    </tr>`;
-  }).join('');
-  const totalHari = total.Hadir + total.Sakit + total.Izin + total.Alpa;
-  return `
-    <h3 style="margin-top:22px">Rekap Per Bulan</h3>
-    <table>
-      <thead><tr><th>Bulan</th><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alpa</th><th>Jumlah</th><th>% Hadir</th></tr></thead>
-      <tbody>
-        ${months.length ? body : `<tr><td colspan="7" style="text-align:center;color:#999">Tidak ada data pada periode ini</td></tr>`}
-        <tr style="font-weight:700;background:#f7f8f6">
-          <td>Total</td>
-          <td style="text-align:center">${total.Hadir}</td>
-          <td style="text-align:center">${total.Sakit}</td>
-          <td style="text-align:center">${total.Izin}</td>
-          <td style="text-align:center">${total.Alpa}</td>
-          <td style="text-align:center">${totalHari}</td>
-          <td style="text-align:center">${totalHari ? Math.round((total.Hadir/totalHari)*100) + '%' : '-'}</td>
-        </tr>
-      </tbody>
-    </table>`;
-}
-
-function todayLabel(){
-  return new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
-}
-/* Blok tanda tangan Guru BK di kaki laporan, mengikuti lembar absensi manual.
-   Nama kota, nama Guru BK & NIP diambil dari menu Pengaturan > Profil Sekolah. */
-function buildSignatureBlockHtml(inline){
-  const kota = SCHOOL_CITY || '..................';
-  const nama = SCHOOL_BK_NAME || '..................................';
-  const nip = SCHOOL_BK_NIP || '-';
-  return `
-    <div class="report-signature${inline ? ' report-signature--inline' : ''}">
-      <p>${escapeHtml(kota)}, ${todayLabel()}</p>
-      <p>Guru BK</p>
-      <div class="report-signature-space"></div>
-      <p class="report-signature-name">${escapeHtml(nama)}</p>
-      <p>NIP. ${escapeHtml(nip)}</p>
-    </div>`;
-}
-
-/* Satu pintu untuk menampilkan & mencetak laporan. Grid bulanan otomatis dicetak
-   landscape (kolom tanggal 1–31 tidak muat di portrait) lewat aturan @page yang
-   disuntikkan sementara, lalu dikembalikan ke portrait untuk laporan lain. */
-function showReportPreview(html, landscape){
   $('#reportPreview').innerHTML = html;
-  $('#reportPreview').classList.toggle('report-preview--wide', !!landscape);
-  let styleEl = document.getElementById('printOrientationStyle');
-  if (!styleEl){
-    styleEl = document.createElement('style');
-    styleEl.id = 'printOrientationStyle';
-    document.head.appendChild(styleEl);
-  }
-  styleEl.textContent = landscape
-    ? '@page { size: A4 landscape; margin: 10mm; }'
-    : '@page { size: A4 portrait; margin: 14mm; }';
   $('#reportPreviewCard').style.display = 'block';
   $('#reportPreviewCard').scrollIntoView({ behavior:'smooth' });
   setTimeout(() => window.print(), 400);
-}
+});
 
 /* Ringkasan total absensi (Hadir/Sakit/Izin/Alpa) & total pelanggaran, ditampilkan di atas tabel laporan */
 function buildReportSummaryHtml(type, rows){
@@ -2741,19 +2284,6 @@ function openSettings(){
         <label>Tahun Pelajaran Aktif</label>
         <input type="text" id="settingsSchoolYear" value="${escapeHtml(SCHOOL_YEAR)}" placeholder="Contoh: 2025/2026" />
       </div>
-      <div class="field full" style="margin-bottom:12px">
-        <label>Kota / Tempat Tanda Tangan</label>
-        <input type="text" id="settingsSchoolCity" value="${escapeHtml(SCHOOL_CITY)}" placeholder="Contoh: Sragi" />
-        <p class="muted" style="margin-top:4px;font-size:11.5px">Dipakai di kaki laporan cetak, contoh: “Sragi, 15 September 2026”.</p>
-      </div>
-      <div class="field full" style="margin-bottom:12px">
-        <label>Nama Guru BK (penanda tangan)</label>
-        <input type="text" id="settingsBkName" value="${escapeHtml(SCHOOL_BK_NAME)}" placeholder="Contoh: SURYA IHZA MAHISTA, S.Pd" />
-      </div>
-      <div class="field full" style="margin-bottom:12px">
-        <label>NIP Guru BK</label>
-        <input type="text" id="settingsBkNip" value="${escapeHtml(SCHOOL_BK_NIP)}" placeholder="Contoh: 19900101 201501 1 001 (isi - bila tidak ada)" />
-      </div>
       <div class="field full" style="margin-bottom:4px">
         <label>Logo Sekolah</label>
         <div class="logo-upload-row">
@@ -2800,7 +2330,11 @@ function openSettings(){
     const originalLabel = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses...';
     try{
-      pendingLogoDataUrl = await resizeImageToDataUrl(file);
+      // maxDim dinaikkan (bukan 240 default) karena logo ini sekarang JUGA dipakai
+      // sebagai ikon PWA & splash screen saat aplikasi di-install (lihat
+      // applyDynamicPwaBranding()) — supaya tetap tajam di layar resolusi tinggi.
+      // maxChars tetap dijaga aman di bawah batas sel Google Sheets.
+      pendingLogoDataUrl = await resizeImageToDataUrl(file, 512, 45000);
       $('#settingsLogoPreviewWrap').innerHTML = `<img id="settingsLogoPreview" src="${escapeHtml(pendingLogoDataUrl)}" alt="Logo" />`;
       $('#settingsLogoRemoveBtn').style.display = '';
     }catch(err){
@@ -2818,27 +2352,18 @@ function openSettings(){
   $('#settingsProfileSaveBtn').addEventListener('click', async () => {
     const name = $('#settingsSchoolName').value.trim();
     const year = $('#settingsSchoolYear').value.trim();
-    const city = $('#settingsSchoolCity').value.trim();
-    const bkName = $('#settingsBkName').value.trim();
-    const bkNip = $('#settingsBkNip').value.trim();
     const logo = pendingLogoDataUrl || '';
     const btn = $('#settingsProfileSaveBtn');
     const originalLabel = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
     try{
-      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo,
-        KotaSekolah: city, NamaGuruBK: bkName, NipGuruBK: bkNip });
+      await adapter.saveSettings({ NamaSekolah: name, TahunPelajaran: year, LogoSekolah: logo });
       SCHOOL_NAME = name; SCHOOL_YEAR = year; SCHOOL_LOGO = logo;
-      SCHOOL_CITY = city; SCHOOL_BK_NAME = bkName; SCHOOL_BK_NIP = bkNip;
-      localStorage.setItem('bk_school_city', SCHOOL_CITY);
-      localStorage.setItem('bk_school_bk_name', SCHOOL_BK_NAME);
-      localStorage.setItem('bk_school_bk_nip', SCHOOL_BK_NIP);
       localStorage.setItem('bk_school_name', SCHOOL_NAME);
       localStorage.setItem('bk_school_year', SCHOOL_YEAR);
       if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
       else localStorage.removeItem('bk_school_logo');
       renderSchoolProfile();
-      applyBrandingToPWA();
       toast('Profil sekolah disimpan ke Google Sheet.', 'success');
     }catch(err){
       toast('Gagal menyimpan profil sekolah: ' + err.message, 'error');

@@ -1,86 +1,65 @@
 /* ============================================================
-   BK DIGITAL — Service Worker
+   BK DIGITAL — SERVICE WORKER
    ------------------------------------------------------------
-   Tujuan file ini HANYA dua:
-   1. Membuat aplikasi "installable" (muncul opsi "Install" / "Add to
-      Home Screen" di HP & Laptop/PC), karena syarat wajib PWA installable
-      di Chrome/Edge/Android adalah ada service worker dengan fetch handler.
-   2. Menyimpan file tampilan (HTML/CSS/JS/ikon) di cache browser supaya
-      ikon yang sudah di-install tetap bisa DIBUKA walau internet lambat/
-      putus-putus (langsung tampil shell aplikasinya).
+   Tujuan file ini CUMA supaya aplikasi memenuhi syarat "installable"
+   sebagai PWA (bisa di-Install lewat Chrome/Edge dan muncul sebagai
+   ikon aplikasi sendiri di Desktop/Start Menu/taskbar), BUKAN untuk
+   membuat aplikasi bisa dipakai penuh secara offline — karena aplikasi
+   ini butuh koneksi ke Google Apps Script (Google Sheet) untuk
+   membaca/menyimpan data, jadi tetap butuh internet saat dipakai.
 
-   PENTING — ini TIDAK menyimpan/meng-cache data siswa sama sekali:
-   - Semua request ke Google Apps Script (script.google.com) SENGAJA
-     dilewatkan apa adanya ke jaringan (tidak pernah disimpan di cache),
-     supaya data yang tampil selalu yang terbaru dari Google Sheet, dan
-     tidak ada data siswa yang "nyangkut" di cache browser.
-   - Kalau internet benar-benar putus, aplikasi tetap terbuka (shell-nya),
-     tapi tetap butuh internet untuk login & memuat data seperti biasa.
-
-   Kalau kamu update index.html/script.js/style.css di GitHub, browser
-   akan otomatis mendeteksi sw.js berubah (kalau kamu naikkan APP_VERSION
-   di bawah) dan mengganti cache lama dengan yang baru pada kunjungan
-   berikutnya. Naikkan APP_VERSION setiap kali deploy versi baru supaya
-   pengguna tidak "terjebak" di versi lama karena cache. */
-const APP_VERSION = 'v1';
-const CACHE_NAME = 'bk-digital-' + APP_VERSION;
-
-// File "app shell" yang di-cache saat pertama kali install. Cukup file
-// statis yang jarang berubah struktur besarnya; ini bukan daftar lengkap
-// semua aset, karena browser tetap boleh mengambil aset lain langsung dari
-// jaringan seperti biasa (lihat fetch handler di bawah).
+   Strategi cache sengaja "network-first" (selalu coba ambil versi
+   TERBARU dari jaringan dulu; cache cuma dipakai kalau sedang offline)
+   supaya update kode di GitHub Pages langsung kepakai begitu di-refresh,
+   tidak pernah "nyangkut" di versi lama gara-gara cache browser.
+   Setiap kali file ini di-deploy ulang, ganti CACHE_VERSION di bawah
+   supaya service worker lama otomatis diganti & cache lama dibersihkan.
+   ============================================================ */
+const CACHE_VERSION = 'bkdigital-v1';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
   './script.js',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './manifest.json'
 ];
 
 self.addEventListener('install', (event) => {
+  // Langsung aktif tanpa nunggu tab lama ditutup, supaya update service
+  // worker (dan jadinya cache) tidak butuh reload manual berkali-kali.
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL).catch(() => {
+      // Kalau salah satu gagal di-cache (mis. offline saat install pertama),
+      // jangan sampai bikin instalasi service worker gagal total.
+    }))
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
-    )).then(() => self.clients.claim())
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  const url = new URL(req.url);
-
-  // Cuma tangani request GET yang SATU ORIGIN dengan aplikasi ini (file
-  // statis: html/css/js/ikon). Semua request lain — termasuk SEMUA
-  // panggilan ke script.google.com (data siswa, login, dst) dan request
-  // POST — SENGAJA dibiarkan lewat apa adanya ke jaringan, tidak pernah
-  // disentuh/di-cache oleh service worker ini.
-  if (req.method !== 'GET' || url.origin !== self.location.origin){
+  // Cuma tangani permintaan GET dari origin sendiri (file app shell). Semua
+  // panggilan lain — terutama ke Google Apps Script (data siswa/absensi/dst),
+  // Google Fonts, dan Font Awesome CDN — dibiarkan lewat langsung ke jaringan
+  // apa adanya, TIDAK pernah di-cache, supaya data selalu yang terbaru.
+  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin){
     return;
   }
-
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req).then((res) => {
-        // Simpan salinan terbaru ke cache di background supaya kunjungan
-        // berikutnya dapat versi terbaru (cache-first untuk kecepatan,
-        // tetap diperbarui diam-diam di belakang layar).
-        if (res && res.ok){
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        }
+    fetch(req)
+      .then((res) => {
+        const resClone = res.clone();
+        caches.open(CACHE_VERSION).then((cache) => cache.put(req, resClone));
         return res;
-      }).catch(() => cached); // offline & tidak ada di cache -> biarkan gagal wajar
-      return cached || network;
-    })
+      })
+      .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
   );
 });
