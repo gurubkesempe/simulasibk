@@ -449,6 +449,44 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .report-homevisit-card{ page-break-inside:avoid; }
 }
 
+/* ============ GRID ABSENSI BULANAN (format lembar absensi sekolah) ============ */
+.ag-title{ text-align:center; letter-spacing:4px; margin-bottom:2px; }
+.ag-school{ text-align:center; margin:0 0 10px; font-size:12.5px; color:var(--ink-faint); }
+.ag-headline{ display:flex; justify-content:space-between; gap:12px; font-size:12.5px; margin-bottom:8px; }
+.report-preview--wide{ overflow-x:auto; }
+table.absensi-grid{
+  width:100%; border-collapse:collapse; table-layout:fixed; font-size:9px; margin-top:4px;
+}
+table.absensi-grid th, table.absensi-grid td{
+  border:1px solid #333; padding:1px 2px; text-align:center; vertical-align:middle;
+  background:transparent; color:#111; line-height:1.25;
+}
+table.absensi-grid thead th{ font-weight:700; font-size:8.5px; }
+table.absensi-grid .ag-no{ width:22px; }
+table.absensi-grid .ag-nama{ width:150px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+table.absensi-grid .ag-lp{ width:20px; }
+table.absensi-grid .ag-day{ width:15px; }
+table.absensi-grid .ag-sum{ width:18px; font-weight:700; }
+table.absensi-grid .ag-ketr{ width:48px; }
+table.absensi-grid tbody td.ag-day{ height:15px; }
+table.absensi-grid tbody td.ag-hadir{ font-weight:700; }
+
+.ag-foot{ display:flex; justify-content:space-between; gap:24px; margin-top:14px; font-size:12px; }
+.ag-foot-row{ margin:1px 0; }
+
+.report-signature{ margin-top:28px; text-align:left; font-size:12.5px; width:260px; margin-left:auto; }
+.report-signature p{ margin:1px 0; }
+.report-signature--inline{ margin-top:0; }
+.report-signature-space{ height:52px; }
+.report-signature-name{ font-weight:700; text-decoration:underline; }
+
+@media print{
+  table.absensi-grid{ font-size:8px; }
+  table.absensi-grid tbody tr{ page-break-inside:avoid; }
+  .ag-foot{ page-break-inside:avoid; }
+  .report-signature{ page-break-inside:avoid; }
+}
+
 @media print{
   body *{ visibility:hidden; }
   #reportPreview, #reportPreview *{ visibility:visible; }

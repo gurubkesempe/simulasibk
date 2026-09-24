@@ -4,47 +4,37 @@ Ringkasan perubahan dan cara memasangnya. Kode frontend (GitHub) dan data (Googl
 tetap terpisah seperti sebelumnya — **update kode ini tidak pernah menyentuh data yang
 sudah tersimpan di Sheet kamu.**
 
-## -4. Update terbaru — Install sebagai Aplikasi (PWA) + ikon & splash pakai Logo Sekolah
+## -4. PENTING (update terbaru) — Rekap Absensi format lembar sekolah
 
-**Tidak perlu ganti `Code.gs` untuk update ini** — murni penambahan file di sisi frontend.
+Laporan **Rekap Absensi** sekarang punya pilihan baru **"Bentuk Rekap Absensi"** di
+halaman Laporan:
 
-File baru: `manifest.json`, `sw.js`, `favicon.ico`, dan folder `icons/` (14 file ikon).
-Semua file ini WAJIB ikut di-upload ke folder yang sama dengan `index.html` di repo
-GitHub kamu, jangan cuma `index.html`/`script.js`/`style.css` saja seperti update
-sebelumnya — kalau file-file baru ini tidak ada, tombol "Install" tidak akan muncul.
+1. **Grid Bulanan (format buku absensi)** — meniru lembar "ABSENSI KELAS" manual:
+   satu baris per siswa, kolom tanggal 1–31, sel diisi kode **S / I / A** (Hadir
+   sengaja dibiarkan kosong seperti di lembar aslinya), kolom **JUMLAH (S | I | A)**
+   dan **KETR** di ujung kanan, lalu rekap **PUTRA / PUTRI / TOTAL**, keterangan
+   kode, dan blok tanda tangan Guru BK. Wajib pilih **Kelas** + **Bulan**; otomatis
+   dicetak **landscape**. Semua siswa kelas itu tetap muncul barisnya walau belum
+   pernah dicatat absensinya.
+2. **Rekap per Siswa (per anak)** — satu baris per siswa: Hadir / Sakit / Izin /
+   Alpa, jumlah, dan **% kehadiran**, plus baris Total.
+3. **Rekap per Kelas** — total H/S/I/A tiap kelas untuk periode yang dipilih.
+4. **Rekap per Bulan** — bulan demi bulan; paling berguna kalau Periode dipilih
+   **Semester**, jadi satu semester terlihat dalam satu tabel.
+5. **Rincian Harian** — daftar catatan seperti versi sebelumnya (tidak berubah).
 
-Yang didapat:
-1. **Tombol "Install"** muncul di address bar Chrome/Edge (desktop). Setelah di-klik,
-   aplikasi terpasang dengan ikon sendiri di Desktop/Start Menu/taskbar, terbuka di
-   jendela sendiri tanpa address bar seperti aplikasi biasa (bukan cuma shortcut ke
-   browser).
-2. **Ikon aplikasi & splash screen otomatis memakai Logo Sekolah** yang sudah diupload
-   lewat menu Pengaturan → Profil Sekolah — bukan ikon generik "BK" bawaan. Ini
-   berjalan otomatis: begitu Logo Sekolah tersimpan di browser (baik dari cache
-   sebelumnya maupun baru dimuat dari Google Sheet), aplikasi diam-diam mengganti
-   referensi ikon PWA ke logo itu. Splash screen (layar loading singkat saat aplikasi
-   dibuka dari ikon yang sudah ter-install) di Android/Chrome dibuat otomatis oleh
-   peramban dari ikon + nama aplikasi ini — tidak ada file splash terpisah yang perlu
-   diatur manual.
-3. Kalau **belum ada Logo Sekolah** yang diupload sama sekali (browser baru pertama
-   kali buka aplikasi ini, localStorage masih kosong), ikon generik "BK" (teal, bubble
-   chat) dipakai dulu sebagai fallback sampai Logo Sekolah tersimpan.
-4. **Keterbatasan yang perlu diketahui**: kalau Logo Sekolah diganti/diupload SETELAH
-   aplikasi sudah pernah di-install duluan, ikon yang SUDAH terlanjur terpasang di
-   Desktop tidak otomatis berubah — perlu uninstall lalu install ulang supaya ikon
-   barunya kepakai. Ini keterbatasan bawaan peramban (Chrome/Edge memang tidak
-   mendukung update ikon PWA yang sudah terpasang), bukan bug di aplikasi ini.
-5. Resolusi Logo Sekolah yang diupload lewat Pengaturan sedikit dinaikkan (dari
-   maksimal 240px jadi 512px, tetap dijaga aman di bawah batas ukuran sel Google
-   Sheets) supaya ikonnya tetap tajam di layar resolusi tinggi.
+Bentuk 2–4 mengikuti **Periode** yang dipilih (Harian / Bulanan / Semester / Semua
+Tanggal), jadi rekap per bulan & per semester tinggal ganti periodenya.
 
-Cara update: cukup timpa `index.html` dan `script.js` yang ada di paket ini ke repo
-kamu, DAN tambahkan file/folder baru (`manifest.json`, `sw.js`, `favicon.ico`,
-`icons/`) yang belum pernah ada sebelumnya. Setelah GitHub Pages selesai deploy ulang,
-buka aplikasinya dan **hard refresh** (Ctrl+Shift+R) supaya file lama di cache
-peramban tidak kepakai, baru coba tombol Install di address bar.
+Di **Pengaturan > Profil Sekolah** ada tiga isian baru untuk kaki laporan:
+**Kota/Tempat Tanda Tangan**, **Nama Guru BK**, dan **NIP Guru BK** (contoh hasil:
+"Sragi, 15 September 2026 / Guru BK / SURYA IHZA MAHISTA, S.Pd / NIP. -").
 
-## -3. PENTING (update terbaru) — Pengetatan Keamanan
+Cukup ganti `index.html`, `script.js`, dan `style.css`. **Tidak ada perubahan
+`Code.gs` dan tidak ada perubahan struktur Sheet** — tiga isian baru tadi tersimpan
+sebagai baris key-value biasa di sheet **Pengaturan** yang sudah ada.
+
+## -3. PENTING (update sebelumnya) — Pengetatan Keamanan
 
 Karena `DEFAULT_API_URL` tertanam langsung di `script.js` (jadi terlihat publik kalau
 repo GitHub-nya publik), update ini menambahkan:
