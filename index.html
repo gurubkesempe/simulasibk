@@ -99,6 +99,7 @@
       <a href="#konseling" class="nav-item" data-page="konseling"><i class="fa-solid fa-comments"></i><span>Konseling</span></a>
       <a href="#kolaborasi" class="nav-item" data-page="kolaborasi"><i class="fa-solid fa-people-arrows"></i><span>Kolaborasi</span></a>
       <a href="#laporan" class="nav-item" data-page="laporan"><i class="fa-solid fa-file-pdf"></i><span>Laporan</span></a>
+      <a href="#kenaikan" class="nav-item" data-page="kenaikan"><i class="fa-solid fa-arrow-up-right-dots"></i><span>Kenaikan &amp; Kelulusan</span></a>
     </nav>
     <div class="sidebar-foot">
       <button id="guruAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
@@ -362,6 +363,47 @@
         </div>
       </section>
 
+      <!-- ===== KENAIKAN & KELULUSAN ===== -->
+      <section class="page" id="page-kenaikan">
+        <div class="card">
+          <div class="card-head"><h3>Kenaikan Kelas</h3></div>
+          <p class="muted">Pindahkan siswa terpilih dari Kelas Asal ke Kelas Tujuan sekaligus (contoh: siswa kelas VII-A naik ke VIII-A). Riwayat Absensi, Pelanggaran, Konseling, dan Kolaborasi yang sudah tercatat tidak ikut berubah.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label>Kelas Asal</label>
+              <select id="naikKelasAsal" class="select select--full"><option value="">Pilih kelas...</option></select>
+            </div>
+            <div class="field">
+              <label>Kelas Tujuan</label>
+              <select id="naikKelasTujuan" class="select select--full"><option value="">Pilih kelas...</option></select>
+            </div>
+          </div>
+          <div class="bulk-list-head">
+            <label class="checkbox-pill"><input type="checkbox" id="naikCheckAll" /> Pilih Semua</label>
+            <span class="muted" id="naikCount">Pilih kelas dahulu untuk menampilkan daftar siswa.</span>
+          </div>
+          <div class="bulk-siswa-list" id="naikSiswaList"></div>
+          <button class="btn btn-primary" id="btnNaikkanKelas" style="margin-top:14px"><i class="fa-solid fa-arrow-up"></i> Naikkan Kelas Siswa Terpilih</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Kelulusan</h3></div>
+          <p class="muted">Luluskan siswa kelas akhir yang benar-benar sudah lulus. Siswa yang diluluskan akan dikeluarkan dari Data Siswa — riwayat Absensi, Pelanggaran, Konseling, dan Kolaborasi yang sudah tercatat tetap tersimpan sebagai arsip.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label>Kelas</label>
+              <select id="lulusKelas" class="select select--full"><option value="">Pilih kelas...</option></select>
+            </div>
+          </div>
+          <div class="bulk-list-head">
+            <label class="checkbox-pill"><input type="checkbox" id="lulusCheckAll" /> Kelulusan Massal (pilih semua)</label>
+            <span class="muted" id="lulusCount">Pilih kelas dahulu untuk menampilkan daftar siswa.</span>
+          </div>
+          <div class="bulk-siswa-list" id="lulusSiswaList"></div>
+          <button class="btn btn-danger" id="btnLuluskan" style="margin-top:14px"><i class="fa-solid fa-graduation-cap"></i> Luluskan Siswa Terpilih</button>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -378,6 +420,7 @@
       <a href="#konseling" class="nav-item" data-page="konseling"><i class="fa-solid fa-comments"></i><span>Konseling</span></a>
       <a href="#kolaborasi" class="nav-item" data-page="kolaborasi"><i class="fa-solid fa-people-arrows"></i><span>Kolaborasi</span></a>
       <a href="#laporan" class="nav-item" data-page="laporan"><i class="fa-solid fa-file-pdf"></i><span>Laporan</span></a>
+      <a href="#kenaikan" class="nav-item" data-page="kenaikan"><i class="fa-solid fa-arrow-up-right-dots"></i><span>Kenaikan &amp; Kelulusan</span></a>
       <button class="nav-item nav-item--ghost" id="guruAccountsBtnMobile"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button class="nav-item nav-item--ghost" id="konselorAccountsBtnMobile"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
       <button class="nav-item nav-item--ghost" id="settingsBtnMobile"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>

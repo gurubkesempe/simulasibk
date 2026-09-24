@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyAG9O3VlirhnatS-Kn6qFE4_5U_kJdD2_5yqfiM5f7oWxH8utEbDCg_GvXGRmPlEZ2/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzz6uBSgQoRae_yrCwdxXT82fHydybXEG6_dyPEQYAxKBEAdMy_ccojB7LX8SQrGYmt/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -156,6 +156,21 @@ const RealAdapter = {
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Gagal menyimpan pengaturan');
     return json.data;
+  },
+  /* Kenaikan Kelas: ubah kolom Kelas untuk banyak siswa terpilih sekaligus
+     ke satu Kelas Tujuan, dalam SATU permintaan (bukan update() satu-satu). */
+  async promoteSiswa(ids, kelasTujuan){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'promoteSiswa', ids, kelasTujuan, token: API_TOKEN }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal melakukan kenaikan kelas');
+    return json.data;
+  },
+  /* Kelulusan: hapus banyak siswa terpilih sekaligus dari Data Siswa. */
+  async lulusSiswa(ids){
+    const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'lulusSiswa', ids, token: API_TOKEN }) });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Gagal melakukan kelulusan siswa');
+    return json.data;
   }
 };
 
@@ -235,6 +250,23 @@ const DemoAdapter = {
       else localStorage.removeItem('bk_school_logo');
     }
     return this.getSettings();
+  },
+  /* Padanan promoteSiswa di RealAdapter, murni di localStorage untuk mode demo. */
+  async promoteSiswa(ids, kelasTujuan){
+    const idSet = new Set((ids||[]).map(String));
+    const arr = this.read('siswa');
+    let updated = 0;
+    arr.forEach(s => { if (idSet.has(String(s.ID))){ s.Kelas = kelasTujuan; updated++; } });
+    this.write('siswa', arr);
+    return { updated, kelasTujuan };
+  },
+  /* Padanan lulusSiswa di RealAdapter, murni di localStorage untuk mode demo. */
+  async lulusSiswa(ids){
+    const idSet = new Set((ids||[]).map(String));
+    const before = this.read('siswa');
+    const after = before.filter(s => !idSet.has(String(s.ID)));
+    this.write('siswa', after);
+    return { deleted: before.length - after.length };
   },
   seedIfEmpty(){
     if (this.read('siswa').length) return;
@@ -417,6 +449,146 @@ function populateReportSiswaSelect(){
   el.value = current;
 }
 
+/* ---------------- KENAIKAN KELAS & KELULUSAN ----------------
+   Halaman terpisah (di bawah menu Laporan) untuk dua aksi massal terhadap
+   Data Siswa:
+   1) Kenaikan Kelas — centang beberapa/semua siswa di satu Kelas Asal, lalu
+      pindahkan sekaligus ke Kelas Tujuan (mis. VII-A -> VIII-A).
+   2) Kelulusan — centang beberapa/semua siswa kelas akhir yang benar-benar
+      sudah lulus, lalu keluarkan sekaligus dari Data Siswa (checkbox
+      "Kelulusan Massal" = pilih semua siswa di kelas itu).
+   Backend hanya mengizinkan Admin/Guru BK utama untuk kedua aksi ini (lihat
+   assertIsAdmin di Code.gs), dan menu ini pun disembunyikan untuk Guru
+   Mapel & Konselor di applyRoleUI(). */
+function renderKenaikan(){
+  const classes = uniqueClasses();
+  const kelasOptHtml = classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+
+  const naikAsal = $('#naikKelasAsal');
+  if (naikAsal){
+    const cur = naikAsal.value;
+    naikAsal.innerHTML = '<option value="">Pilih kelas...</option>' + kelasOptHtml;
+    naikAsal.value = cur;
+  }
+  const naikTujuan = $('#naikKelasTujuan');
+  if (naikTujuan){
+    const cur = naikTujuan.value;
+    naikTujuan.innerHTML = '<option value="">Pilih kelas...</option>' + kelasOptHtml;
+    naikTujuan.value = cur;
+  }
+  const lulusKelas = $('#lulusKelas');
+  if (lulusKelas){
+    const cur = lulusKelas.value;
+    lulusKelas.innerHTML = '<option value="">Pilih kelas...</option>' + kelasOptHtml;
+    lulusKelas.value = cur;
+  }
+  renderKenaikanSiswaList('naik', naikAsal ? naikAsal.value : '');
+  renderKenaikanSiswaList('lulus', lulusKelas ? lulusKelas.value : '');
+}
+
+/* prefix: 'naik' atau 'lulus' — dipakai bersama karena kedua kartu (Kenaikan
+   Kelas & Kelulusan) punya struktur checklist siswa per kelas yang identik. */
+function renderKenaikanSiswaList(prefix, kelas){
+  const list = $(`#${prefix}SiswaList`);
+  const countEl = $(`#${prefix}Count`);
+  const checkAll = $(`#${prefix}CheckAll`);
+  if (!list) return;
+  if (!kelas){
+    list.innerHTML = `<p class="muted">Pilih kelas dahulu untuk menampilkan daftar siswa.</p>`;
+    if (checkAll) checkAll.checked = false;
+    if (countEl) countEl.textContent = 'Pilih kelas dahulu untuk menampilkan daftar siswa.';
+    return;
+  }
+  const siswaKelas = STATE.siswa.filter(s => s.Kelas === kelas).sort((a,b) => (a.Nama||'').localeCompare(b.Nama||''));
+  if (!siswaKelas.length){
+    list.innerHTML = `<p class="muted">Tidak ada data siswa untuk kelas ini.</p>`;
+    if (checkAll) checkAll.checked = false;
+    if (countEl) countEl.textContent = 'Tidak ada data siswa untuk kelas ini.';
+    return;
+  }
+  list.innerHTML = siswaKelas.map(s => `
+    <label class="checkbox-pill bulk-item">
+      <input type="checkbox" class="${prefix}-siswa-check" value="${escapeHtml(s.ID)}" checked />
+      <span class="avatar-ring" style="width:24px;height:24px;font-size:9.5px;background:${colorFromString(s.Nama)}">${escapeHtml(initials(s.Nama))}</span>
+      <span>${escapeHtml(s.Nama)} <span class="muted">· NIS ${escapeHtml(s.NIS||'-')}</span></span>
+    </label>`).join('');
+  if (checkAll) checkAll.checked = true;
+  updateKenaikanCount(prefix);
+}
+
+function updateKenaikanCount(prefix){
+  const countEl = $(`#${prefix}Count`);
+  if (!countEl) return;
+  const total = $all(`.${prefix}-siswa-check`).length;
+  const checked = $all(`.${prefix}-siswa-check:checked`).length;
+  countEl.textContent = total ? `${checked} dari ${total} siswa dicentang` : 'Tidak ada data siswa untuk kelas ini.';
+}
+
+/* --- Kenaikan Kelas --- */
+$('#naikKelasAsal')?.addEventListener('change', e => renderKenaikanSiswaList('naik', e.target.value));
+$('#naikCheckAll')?.addEventListener('change', e => {
+  $all('.naik-siswa-check').forEach(cb => cb.checked = e.target.checked);
+  updateKenaikanCount('naik');
+});
+$('#naikSiswaList')?.addEventListener('change', e => {
+  if (e.target.classList.contains('naik-siswa-check')) updateKenaikanCount('naik');
+});
+$('#btnNaikkanKelas')?.addEventListener('click', async () => {
+  const kelasAsal = $('#naikKelasAsal').value;
+  const kelasTujuan = $('#naikKelasTujuan').value.trim();
+  if (!kelasAsal){ toast('Pilih Kelas Asal terlebih dahulu.', 'error'); return; }
+  if (!kelasTujuan){ toast('Kelas Tujuan wajib diisi.', 'error'); return; }
+  const checkedIds = $all('.naik-siswa-check:checked').map(cb => cb.value);
+  if (!checkedIds.length){ toast('Centang minimal satu siswa untuk dinaikkan kelasnya.', 'error'); return; }
+  if (!confirm(`Naikkan ${checkedIds.length} siswa dari ${kelasAsal} ke ${kelasTujuan}?`)) return;
+
+  showLoading(true);
+  try{
+    const result = await adapter.promoteSiswa(checkedIds, kelasTujuan);
+    STATE.siswa.forEach(s => { if (checkedIds.includes(String(s.ID))) s.Kelas = kelasTujuan; });
+    $('#naikKelasTujuan').value = '';
+    populateClassFilters();
+    renderKenaikan();
+    renderDashboard();
+    toast(`${result?.updated ?? checkedIds.length} siswa berhasil dinaikkan ke kelas ${kelasTujuan}.`, 'success');
+  }catch(err){
+    toast(err.message, 'error');
+  }finally{
+    showLoading(false);
+  }
+});
+
+/* --- Kelulusan --- */
+$('#lulusKelas')?.addEventListener('change', e => renderKenaikanSiswaList('lulus', e.target.value));
+$('#lulusCheckAll')?.addEventListener('change', e => {
+  $all('.lulus-siswa-check').forEach(cb => cb.checked = e.target.checked);
+  updateKenaikanCount('lulus');
+});
+$('#lulusSiswaList')?.addEventListener('change', e => {
+  if (e.target.classList.contains('lulus-siswa-check')) updateKenaikanCount('lulus');
+});
+$('#btnLuluskan')?.addEventListener('click', async () => {
+  const kelas = $('#lulusKelas').value;
+  if (!kelas){ toast('Pilih kelas terlebih dahulu.', 'error'); return; }
+  const checkedIds = $all('.lulus-siswa-check:checked').map(cb => cb.value);
+  if (!checkedIds.length){ toast('Centang minimal satu siswa untuk diluluskan.', 'error'); return; }
+  if (!confirm(`Luluskan ${checkedIds.length} siswa dari kelas ${kelas}? Siswa yang diluluskan akan dikeluarkan dari Data Siswa. Tindakan ini tidak dapat dibatalkan.`)) return;
+
+  showLoading(true);
+  try{
+    const result = await adapter.lulusSiswa(checkedIds);
+    STATE.siswa = STATE.siswa.filter(s => !checkedIds.includes(String(s.ID)));
+    populateClassFilters();
+    renderKenaikan();
+    renderDashboard();
+    toast(`${result?.deleted ?? checkedIds.length} siswa berhasil diluluskan dan dikeluarkan dari Data Siswa.`, 'success');
+  }catch(err){
+    toast(err.message, 'error');
+  }finally{
+    showLoading(false);
+  }
+});
+
 /* ---------------- NAVIGATION ---------------- */
 function goToPage(page){
   currentPage = page;
@@ -424,7 +596,7 @@ function goToPage(page){
   $(`#page-${page}`)?.classList.add('active');
   $all('.nav-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
   $all('.bn-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { dashboard:'Dashboard', siswa:'Data Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', laporan:'Laporan' };
+  const titles = { dashboard:'Dashboard', siswa:'Data Siswa', absensi:'Absensi', pelanggaran:'Pelanggaran', konseling:'Konseling', kolaborasi:'Kolaborasi', laporan:'Laporan', kenaikan:'Kenaikan & Kelulusan' };
   $('#pageTitle').textContent = titles[page] || page;
   closeMoreSheet();
   hideSearchDropdown();
@@ -437,6 +609,7 @@ function renderCurrentPage(q){
   if (currentPage === 'pelanggaran') renderPelanggaran(q);
   if (currentPage === 'konseling') renderKonseling(q);
   if (currentPage === 'kolaborasi') renderKolaborasi(q);
+  if (currentPage === 'kenaikan') renderKenaikan();
 }
 
 $all('.nav-item[data-page]').forEach(n => n.addEventListener('click', e => { e.preventDefault(); goToPage(n.dataset.page); }));
@@ -2444,6 +2617,12 @@ function applyRoleUI(){
      ditolak server siapa pun selain Admin. */
   ['#btnAddSiswa','#btnImportSiswa','#btnBulkAbsensi']
     .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
+  /* Menu "Kenaikan & Kelulusan" mengelola Data Siswa secara massal (termasuk
+     menghapus siswa saat kelulusan) — backend hanya mengizinkan Admin/Guru BK
+     utama (lihat assertIsAdmin di Code.gs), jadi disembunyikan juga untuk
+     Konselor di tampilan (bukan cuma Guru Mapel yang sudah tertutup lewat
+     aturan umum di atas). */
+  $all('.nav-item[data-page="kenaikan"]').forEach(n => n.classList.toggle('hidden', isGuru || isKonselor));
   const badge = $('#guruBadge');
   if (badge){
     badge.classList.toggle('hidden', false);
