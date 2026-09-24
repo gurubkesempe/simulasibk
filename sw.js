@@ -15,13 +15,14 @@
    Setiap kali file ini di-deploy ulang, ganti CACHE_VERSION di bawah
    supaya service worker lama otomatis diganti & cache lama dibersihkan.
    ============================================================ */
-const CACHE_VERSION = 'bkdigital-v1';
+const CACHE_VERSION = 'bkdigital-v2';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
   './script.js',
-  './manifest.json'
+  './manifest.json',
+  './pwa.js'
 ];
 
 self.addEventListener('install', (event) => {

@@ -7,9 +7,32 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#2F6F63">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<!-- ============ SPLASH SCREEN (logo sekolah; tampil saat dibuka dari ikon aplikasi) ============ -->
+<div id="appSplash" class="app-splash">
+  <img id="appSplashLogo" src="icons/icon-192.png" alt="" />
+  <h2 id="appSplashName">BK Digital</h2>
+  <div class="spinner"></div>
+</div>
+<script>
+(function(){
+  var sa = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  var sp = document.getElementById('appSplash');
+  if (!sa){ sp.remove(); return; }
+  try{
+    var l = localStorage.getItem('bk_school_logo'), n = localStorage.getItem('bk_school_name');
+    if (l) document.getElementById('appSplashLogo').src = l;
+    if (n) document.getElementById('appSplashName').textContent = n;
+  }catch(e){}
+})();
+</script>
 
 <!-- ============ SPLASH / LOGIN ============ -->
 <div id="setupScreen" class="setup-screen">
@@ -24,6 +47,7 @@
     <input id="apiTokenInput" type="password" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
     <button id="apiUrlSave" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk sebagai Admin/Guru BK</button>
     <p class="setup-note">URL &amp; token ini hanya disimpan di browser kamu (localStorage), tidak dikirim ke mana-mana kecuali ke Web App Google Apps Script milikmu sendiri. Lihat README untuk cara membuatnya.</p>
+    <button type="button" class="btn btn-ghost btn-block pwa-install-btn hidden"><i class="fa-solid fa-download"></i> Pasang Aplikasi di Perangkat</button>
     <a href="#" id="showGuruLoginLink" class="setup-switch-link">Login sebagai Guru Mapel →</a>
     <a href="#" id="showKonselorLoginLink" class="setup-switch-link">Login sebagai Guru BK (Konselor) →</a>
   </div>
@@ -79,6 +103,7 @@
     <div class="sidebar-foot">
       <button id="guruAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button id="konselorAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
+      <button class="nav-item nav-item--ghost pwa-install-btn hidden" type="button"><i class="fa-solid fa-download"></i><span>Pasang Aplikasi</span></button>
       <button id="settingsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button id="logoutBtn" class="nav-item nav-item--ghost hidden"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>
@@ -394,6 +419,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="pwa.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

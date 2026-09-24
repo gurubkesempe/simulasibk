@@ -71,6 +71,7 @@ function renderSchoolProfile(){
     img.style.display = 'none'; icon.style.display = 'block';
   }
   document.title = SCHOOL_NAME ? `BK Digital — ${SCHOOL_NAME}` : 'BK Digital — Sistem Bimbingan Konseling';
+  if (window.updatePwaIdentity) window.updatePwaIdentity(); // ikon/manifest/splash mengikuti logo sekolah
 }
 
 /* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
@@ -2529,7 +2530,7 @@ function downloadFullBackup(){
 /* Ubah file gambar yang dipilih user jadi base64 data URL yang sudah diperkecil
    (resize + kompres), supaya cukup kecil untuk disimpan dalam SATU sel Google
    Sheets (batas ±50.000 karakter per sel) — bukan cuma disimpan di localStorage. */
-function resizeImageToDataUrl(file, maxDim = 240, maxChars = 45000){
+function resizeImageToDataUrl(file, maxDim = 512, maxChars = 45000){
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
