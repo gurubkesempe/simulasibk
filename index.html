@@ -7,6 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<meta name="theme-color" content="#2F6F63" />
+<link rel="manifest" href="manifest.webmanifest" />
+<!-- Ikon untuk "Install"/"Add to Home Screen" di HP & Laptop/PC (Android/Chrome/Edge pakai manifest.webmanifest di atas; baris-baris di bawah ini khusus untuk iOS Safari yang tidak membaca manifest untuk ikon Home Screen). -->
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="BK Digital" />
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -79,6 +88,7 @@
     <div class="sidebar-foot">
       <button id="guruAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button id="konselorAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
+      <button class="nav-item nav-item--ghost install-app-btn hidden" title="Tambahkan ikon BK Digital ke layar HP/Laptop supaya bisa dibuka langsung tanpa lewat browser"><i class="fa-solid fa-arrow-down-to-bracket"></i><span>Install App</span></button>
       <button id="settingsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button id="logoutBtn" class="nav-item nav-item--ghost hidden"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>
@@ -355,6 +365,7 @@
       <a href="#laporan" class="nav-item" data-page="laporan"><i class="fa-solid fa-file-pdf"></i><span>Laporan</span></a>
       <button class="nav-item nav-item--ghost" id="guruAccountsBtnMobile"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button class="nav-item nav-item--ghost" id="konselorAccountsBtnMobile"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
+      <button class="nav-item nav-item--ghost install-app-btn hidden" title="Tambahkan ikon BK Digital ke layar HP supaya bisa dibuka langsung tanpa lewat browser"><i class="fa-solid fa-arrow-down-to-bracket"></i><span>Install App</span></button>
       <button class="nav-item nav-item--ghost" id="settingsBtnMobile"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button class="nav-item nav-item--ghost hidden" id="logoutBtnMobile"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>

@@ -2,6 +2,158 @@
    BK DIGITAL — FRONTEND LOGIC
    ============================================================ */
 
+/* ---------------- PWA: Ikon & Splash Screen pakai Logo Sekolah ----------------
+   Ikon "Install App" dan splash screen (layar pembuka saat ikon dibuka dari
+   Home Screen) otomatis dibuat dari Logo Sekolah yang diupload admin di menu
+   Pengaturan (SCHOOL_LOGO) — bukan ikon generik bawaan. Tidak perlu upload
+   file ikon terpisah ke GitHub: manifest & apple-touch-icon di-generate ULANG
+   di BROWSER (lewat Blob URL berisi data gambar logo) setiap kali logo
+   berubah, jadi tiap sekolah yang pakai kode yang sama otomatis dapat ikon
+   sendiri-sendiri sesuai logo yang mereka upload di Sheet masing-masing.
+
+   Splash screen Android: begitu manifest terpasang dengan ikon 512x512 dari
+   logo sekolah, Chrome/Android OTOMATIS memakai ikon itu (di atas warna
+   background_color manifest) sebagai splash screen saat ikon di-tap dari Home
+   Screen — tidak perlu kode tambahan.
+   Splash screen iOS: Safari/iOS TIDAK membaca manifest untuk splash, dan
+   splash custom di iOS mensyaratkan gambar terpisah persis untuk tiap ukuran
+   layar iPhone/iPad (keterbatasan platform, bukan sesuatu yang bisa
+   diakali dari sini) — jadi di iOS yang otomatis ter-branding adalah ikon
+   Home Screen-nya (lewat apple-touch-icon di bawah), sementara momen splash
+   putih sesaat sebelum halaman termuat tetap ada seperti web biasa.
+
+   Catatan penting: link manifest/ikon dibaca browser SAAT HALAMAN DIMUAT.
+   SCHOOL_LOGO baru tersedia SETELAH admin pernah login & memuat Pengaturan
+   di perangkat itu (lalu otomatis tersimpan di localStorage untuk kunjungan
+   berikutnya) — karena getSettings tetap mensyaratkan token/sesi valid demi
+   keamanan (lihat Code.gs). Jadi di perangkat yang BENAR-BENAR baru & belum
+   pernah login, ikon "Install App" masih tampil default BK Digital dulu;
+   begitu ada yang login sekali di perangkat itu, kunjungan/install
+   berikutnya otomatis pakai logo sekolah. */
+function loadImageFromDataUrl(dataUrl){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Gagal memuat logo'));
+    img.src = dataUrl;
+  });
+}
+
+/* Menggambar logo (rasio apa pun) di tengah kanvas persegi berlatar putih,
+   supaya jadi ikon persegi yang konsisten walau logo asli tidak persegi.
+   padRatio menentukan jarak logo ke tepi (lebih besar = logo lebih kecil di
+   tengah) — dipakai lebih besar untuk versi "maskable" karena Android/HP
+   boleh memotong ikon maskable jadi lingkaran/bentuk lain, jadi konten
+   penting (logonya) perlu ada "zona aman" lebih longgar di tengah. */
+async function squareIconDataUrl(logoDataUrl, size, padRatio){
+  const img = await loadImageFromDataUrl(logoDataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, size, size);
+  const inner = size * (1 - padRatio * 2);
+  const scale = Math.min(inner / img.naturalWidth, inner / img.naturalHeight);
+  const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  return canvas.toDataURL('image/png');
+}
+
+let pwaManifestBlobUrl = null;
+async function applyBrandingToPWA(){
+  if (!SCHOOL_LOGO) return; // belum ada logo -> biarkan pakai ikon default bawaan (icons/*.png)
+  try{
+    const [icon192, icon512, iconMask192, iconMask512, icon180, icon32, icon16] = await Promise.all([
+      squareIconDataUrl(SCHOOL_LOGO, 192, 0.08),
+      squareIconDataUrl(SCHOOL_LOGO, 512, 0.08),
+      squareIconDataUrl(SCHOOL_LOGO, 192, 0.20), // maskable: padding lebih longgar (zona aman)
+      squareIconDataUrl(SCHOOL_LOGO, 512, 0.20),
+      squareIconDataUrl(SCHOOL_LOGO, 180, 0.10), // apple-touch-icon
+      squareIconDataUrl(SCHOOL_LOGO, 32, 0.05),
+      squareIconDataUrl(SCHOOL_LOGO, 16, 0.05)
+    ]);
+
+    const appName = SCHOOL_NAME ? `${SCHOOL_NAME} — BK Digital` : 'BK Digital — Sistem Bimbingan Konseling';
+    const shortName = SCHOOL_NAME ? SCHOOL_NAME.slice(0, 24) : 'BK Digital';
+    const manifest = {
+      name: appName,
+      short_name: shortName,
+      description: 'Sistem Bimbingan & Konseling Sekolah',
+      start_url: './index.html',
+      scope: './',
+      display: 'standalone',
+      orientation: 'portrait-primary',
+      background_color: '#F4F6F5',
+      theme_color: '#2F6F63',
+      lang: 'id',
+      dir: 'ltr',
+      icons: [
+        { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: iconMask192, sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: iconMask512, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    };
+
+    if (pwaManifestBlobUrl) URL.revokeObjectURL(pwaManifestBlobUrl);
+    pwaManifestBlobUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
+
+    const linkManifest = document.querySelector('link[rel="manifest"]');
+    const linkAppleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    const linkIcon32 = document.querySelector('link[rel="icon"][sizes="32x32"]');
+    const linkIcon16 = document.querySelector('link[rel="icon"][sizes="16x16"]');
+    if (linkManifest) linkManifest.setAttribute('href', pwaManifestBlobUrl);
+    if (linkAppleIcon) linkAppleIcon.setAttribute('href', icon180);
+    if (linkIcon32) linkIcon32.setAttribute('href', icon32);
+    if (linkIcon16) linkIcon16.setAttribute('href', icon16);
+  }catch(brandErr){
+    // Logo gagal diproses (mis. data korup) -> diamkan, tetap pakai ikon default bawaan.
+  }
+}
+document.addEventListener('DOMContentLoaded', applyBrandingToPWA); // pakai logo dari cache (localStorage) kalau ada, sejak halaman pertama dimuat
+
+/* ---------------- PWA: daftarkan Service Worker + tombol "Install App" ----------------
+   Mendaftarkan sw.js supaya browser (terutama Chrome/Edge di Android maupun
+   Laptop/PC) menganggap situs ini "installable" — muncul ikon aplikasi yang
+   bisa ditambahkan ke Home Screen (HP) atau di-pin sebagai app tersendiri
+   (Laptop/PC), lepas dari tab browser biasa. Dibungkus try/catch dan dicek
+   dulu 'serviceWorker' in navigator supaya browser lama yang tidak dukung
+   PWA tetap bisa pakai aplikasi ini seperti biasa (fitur ini optional,
+   bukan syarat aplikasi bisa jalan). */
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      // Gagal daftar SW (mis. dibuka dari file:// bukan http/https) -> diamkan,
+      // aplikasi tetap jalan normal tanpa fitur install/offline shell.
+    });
+  });
+}
+
+/* Chrome/Edge (Android & Desktop) menahan prompt "Install" bawaan browser
+   lewat event ini, supaya kita bisa munculkan tombol "Install App" sendiri
+   di dalam UI (lebih jelas & konsisten dengan desain aplikasi) daripada
+   mengandalkan ikon kecil di address bar yang sering tidak disadari orang. */
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.remove('hidden'));
+});
+async function triggerInstallApp(){
+  if (!deferredInstallPrompt) return;
+  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.add('hidden'));
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+}
+window.addEventListener('appinstalled', () => {
+  document.querySelectorAll('.install-app-btn').forEach(btn => btn.classList.add('hidden'));
+  deferredInstallPrompt = null;
+});
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.install-app-btn').forEach(btn => btn.addEventListener('click', triggerInstallApp));
+});
+
 /* Escape data siswa/guru sebelum dimasukkan ke innerHTML, supaya data yang berisi
    karakter HTML (mis. "<", ">", nama yang mengandung tag) tidak dieksekusi sebagai
    kode di browser pengguna lain (mencegah stored XSS). SELALU pakai fungsi ini
@@ -394,6 +546,7 @@ function applySettingsFromServer(map){
   if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
   else localStorage.removeItem('bk_school_logo');
   renderSchoolProfile();
+  applyBrandingToPWA();
 }
 
 function populateClassFilters(){
@@ -2685,6 +2838,7 @@ function openSettings(){
       if (SCHOOL_LOGO) localStorage.setItem('bk_school_logo', SCHOOL_LOGO);
       else localStorage.removeItem('bk_school_logo');
       renderSchoolProfile();
+      applyBrandingToPWA();
       toast('Profil sekolah disimpan ke Google Sheet.', 'success');
     }catch(err){
       toast('Gagal menyimpan profil sekolah: ' + err.message, 'error');
