@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzt0Q8LiLvBj3hXNasmU8GlvkSzsh3cBtdYVEp_7dQBvWDv-X2y8GRd85KASRLyftPT/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxr9qdHV6I4cVmFcrALVrPBjwoB27OEus_Ui_ZOcTk92foeRwqMtGnCYYObON6mAomm/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -412,6 +412,7 @@ async function loadAll(){
     STATE.konselor = data.konselor || [];
     STATE.siswaLulus = data.siswaLulus || [];
     applySettingsFromServer(data.pengaturan || {});
+    applyProfileFromServer(data._me);
     populateClassFilters();
     renderCurrentPage();
     renderDashboard();
@@ -939,6 +940,9 @@ document.addEventListener('click', e => {
     wrap.querySelector('input[type=hidden]').value = s.ID;
     wrap.querySelector('.siswa-picker-input').value = `${s.Nama} — ${s.Kelas||'-'}`;
     wrap.querySelector('.siswa-picker-dropdown').classList.remove('open');
+    // Form Kolaborasi: isi otomatis Nama Orang Tua/Wali dari data siswa (hanya kalau masih kosong)
+    const ortuInput = wrap.closest('form') && wrap.closest('form').querySelector('input[name="NamaOrtuWali"]');
+    if (ortuInput && !ortuInput.value.trim()) ortuInput.value = s.NamaOrtu || '';
     return;
   }
   $all('.siswa-picker-dropdown.open').forEach(dd => {
@@ -1175,7 +1179,8 @@ function renderKolaborasi(searchQuery){
       </div>
       <div class="entry-body">
         <p><span class="badge badge--info">${escapeHtml(k.Jenis||'-')}</span></p>
-        <p style="margin-top:8px"><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
+        <p style="margin-top:8px"><b>Orang Tua/Wali:</b> ${escapeHtml(k.NamaOrtuWali||'-')}</p>
+        <p><b>Tujuan:</b> ${escapeHtml(k.Tujuan||'-')}</p>
         <p><b>Hasil:</b> ${escapeHtml(k.Hasil||'-')}</p>
         ${k.BuktiFoto ? `<p style="margin-top:8px"><b>Bukti Home Visit:</b><br/><img src="${escapeHtml(k.BuktiFoto)}" alt="Bukti Home Visit" class="bukti-foto-thumb" data-lightbox-id="${escapeHtml(k.ID)}" title="Klik untuk perbesar" /></p>` : ''}
       </div>
@@ -1325,6 +1330,7 @@ const FORM_CONFIG = {
       { key:'Tanggal', label:'Tanggal', type:'date', required:true, default: () => new Date().toISOString().slice(0,10) },
       { key:'SiswaID', label:'Siswa', type:'select-siswa', required:true, full:true },
       { key:'Jenis', label:'Jenis Kegiatan', type:'select', options:['Pemanggilan Orang Tua','Home Visit'], required:true },
+      { key:'NamaOrtuWali', label:'Nama Orang Tua / Wali', type:'text', placeholder:'Terisi otomatis dari data siswa, bisa diubah (mis. wali)' },
       { key:'Petugas', label:'Petugas BK', type:'text', default: () => (USER_ROLE === 'konselor' ? KONSELOR_NAMA : '') },
       { key:'Tujuan', label:'Tujuan Kegiatan', type:'textarea', full:true },
       { key:'Hasil', label:'Hasil / Kesepakatan', type:'textarea', full:true },
@@ -1492,10 +1498,19 @@ function closeModal(){ $('#modalBackdrop').classList.remove('open'); }
    kelas masuk semua), pilih satu status, lalu simpan sekaligus. Tidak mengubah
    tampilan/alur "Catat Absensi" satu-per-satu yang sudah ada — ini murni tombol
    tambahan di sebelahnya. */
+function bulkAbsensiAllowedKelas(){
+  const all = uniqueClasses();
+  if (USER_ROLE !== 'konselor' || !KONSELOR_KELAS.length) return all;
+  const own = KONSELOR_KELAS.map(k => String(k).trim().toLowerCase());
+  return all.filter(c => own.includes(String(c).trim().toLowerCase()));
+}
 function openBulkAbsensi(){
   $('#modalTitle').textContent = 'Absen Massal per Kelas';
   const today = new Date().toISOString().slice(0,10);
-  const kelasOpts = uniqueClasses().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  // Konselor hanya boleh absen massal di kelas tanggung jawabnya (kosong = semua kelas).
+  // Server juga menegakkan ini, jadi ini hanya merapikan pilihan di tampilan.
+  const allowedKelas = bulkAbsensiAllowedKelas();
+  const kelasOpts = allowedKelas.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
 
   $('#modalBody').innerHTML = `
     <form id="bulkAbsensiForm">
@@ -1569,6 +1584,7 @@ function openBulkAbsensi(){
     const status = $('#bulkStatus').value;
     const keterangan = $('#bulkKeterangan').value || '';
     if (!tanggal || !kelas || !status){ toast('Tanggal, kelas, dan status wajib diisi.', 'error'); return; }
+    if (!bulkAbsensiAllowedKelas().includes(kelas)){ toast('Anda hanya bisa absen massal untuk kelas tanggung jawab Anda.', 'error'); return; }
     const checkedIds = $all('.bulk-siswa-check:checked').map(cb => cb.value);
     if (!checkedIds.length){ toast('Centang minimal satu siswa.', 'error'); return; }
 
@@ -1753,9 +1769,9 @@ const REPORT_COLUMNS = {
   absensi: ['Tanggal','Nama','Kelas','Status','Keterangan'],
   pelanggaran: ['Tanggal','Nama','Kelas','JenisPelanggaran','Poin','Penanganan'],
   konseling: ['Tanggal','Nama','Kelas','Topik','HasilKonseling','TindakLanjut','TTD'],
-  kolaborasi: ['Tanggal','Nama','Kelas','Jenis','Tujuan','Hasil'],
-  pemanggilan_ortu: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
-  home_visit: ['Tanggal','Nama','Kelas','Tujuan','Hasil','Petugas'],
+  kolaborasi: ['Tanggal','Nama','Kelas','Jenis','NamaOrtuWali','Tujuan','Hasil'],
+  pemanggilan_ortu: ['Tanggal','Nama','Kelas','NamaOrtuWali','Tujuan','Hasil','Petugas'],
+  home_visit: ['Tanggal','Nama','Kelas','NamaOrtuWali','Tujuan','Hasil','Petugas'],
   siswa_lulus: ['NIS','Nama','Kelas','JenisKelamin','NamaOrtu','NoHPOrtu','TahunLulus','TanggalLulus']
 };
 const REPORT_TITLES = {
@@ -1947,7 +1963,7 @@ $('#btnGenerateReport').addEventListener('click', () => {
       ${buildReportSummaryHtml('pelanggaran', pelanggaran)}
       ${section('Rekap Pelanggaran', ['Tanggal','JenisPelanggaran','Poin','Penanganan'], pelanggaran, 'Tidak ada catatan pelanggaran')}
       ${section('Rekap Konseling', ['Tanggal','Topik','HasilKonseling','TindakLanjut','TTD'], konseling, 'Tidak ada catatan konseling')}
-      ${section('Rekap Pemanggilan Orang Tua', ['Tanggal','Tujuan','Hasil','Petugas'], kolaborasi.filter(r => r.Jenis === 'Pemanggilan Orang Tua'), 'Tidak ada catatan pemanggilan orang tua')}
+      ${section('Rekap Pemanggilan Orang Tua', ['Tanggal','NamaOrtuWali','Tujuan','Hasil','Petugas'], kolaborasi.filter(r => r.Jenis === 'Pemanggilan Orang Tua'), 'Tidak ada catatan pemanggilan orang tua')}
       <h3 style="margin-top:22px">Rekap Home Visit</h3>
       ${buildHomeVisitReportHtml(kolaborasi.filter(r => r.Jenis === 'Home Visit'))}
       ${s.Catatan ? `<h3 style="margin-top:22px">Catatan Tambahan</h3><p>${escapeHtml(s.Catatan)}</p>` : ''}
@@ -2478,6 +2494,7 @@ function buildHomeVisitReportHtml(rows){
         <b>${escapeHtml(r.Nama||'-')}</b>&nbsp;<span class="muted">(${escapeHtml(r.Kelas||'-')})</span>
         <span class="report-homevisit-date">${fmtDate(r.Tanggal)}</span>
       </div>
+      <p><b>Orang Tua/Wali:</b> ${escapeHtml(r.NamaOrtuWali||'-')}</p>
       <p><b>Tujuan:</b> ${escapeHtml(r.Tujuan||'-')}</p>
       <p><b>Hasil:</b> ${escapeHtml(r.Hasil||'-')}</p>
       <p><b>Petugas:</b> ${escapeHtml(r.Petugas||'-')}</p>
@@ -2683,6 +2700,31 @@ $('#konselorPasswordInput').addEventListener('keydown', (e) => { if (e.key === '
      bukan di penyembunyian menu.
    Ini murni tampilan — backend TETAP menolak akses ke tipe/kelas data yang
    tidak diizinkan walau menu terlihat (lihat Code.gs). */
+function updateRoleBadge(){
+  const badge = $('#guruBadge');
+  if (!badge) return;
+  badge.classList.toggle('hidden', false);
+  if (USER_ROLE === 'guru') badge.textContent = `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ' · Semua Kelas'}`;
+  else if (USER_ROLE === 'konselor') badge.textContent = `${KONSELOR_NAMA}${KONSELOR_KELAS.length ? ' · Konseling: ' + KONSELOR_KELAS.join(', ') : ' · Konseling: Semua Kelas'}`;
+  else badge.textContent = 'Admin BK';
+}
+/* Profil akun (nama & kelas) yang dikirim server tiap kali data dimuat. Kelas di
+   token login/localStorage bisa basi kalau Admin mengubahnya setelah login, jadi
+   selalu ditimpa dengan data terbaru dari Sheet. */
+function applyProfileFromServer(me){
+  if (!me || USER_ROLE === 'admin') return;
+  const kelas = Array.isArray(me.kelas) ? me.kelas : [];
+  if (USER_ROLE === 'konselor'){
+    KONSELOR_NAMA = me.nama || KONSELOR_NAMA; KONSELOR_KELAS = kelas;
+    localStorage.setItem('bk_konselor_nama', KONSELOR_NAMA);
+    localStorage.setItem('bk_konselor_kelas', JSON.stringify(KONSELOR_KELAS));
+  } else if (USER_ROLE === 'guru'){
+    GURU_NAMA = me.nama || GURU_NAMA; GURU_KELAS = kelas;
+    localStorage.setItem('bk_guru_nama', GURU_NAMA);
+    localStorage.setItem('bk_guru_kelas', JSON.stringify(GURU_KELAS));
+  }
+  updateRoleBadge();
+}
 function applyRoleUI(){
   const isGuru = USER_ROLE === 'guru';
   const isKonselor = USER_ROLE === 'konselor';
@@ -2708,7 +2750,7 @@ function applyRoleUI(){
      hanya untuk tipe yang memang masih tertutup total buat Konselor (Data Siswa)
      dan fitur admin-only (Absen Massal, Import Siswa) yang tetap
      ditolak server siapa pun selain Admin. */
-  ['#btnAddSiswa','#btnImportSiswa','#btnBulkAbsensi']
+  ['#btnAddSiswa','#btnImportSiswa']
     .forEach(sel => { const el = $(sel); if (el) el.classList.toggle('hidden', isKonselor); });
   /* Menu "Kenaikan & Kelulusan" mengelola Data Siswa secara massal (termasuk
      menghapus siswa saat kelulusan) — backend hanya mengizinkan Admin/Guru BK
@@ -2716,13 +2758,7 @@ function applyRoleUI(){
      Konselor di tampilan (bukan cuma Guru Mapel yang sudah tertutup lewat
      aturan umum di atas). */
   $all('.nav-item[data-page="kenaikan"]').forEach(n => n.classList.toggle('hidden', isGuru || isKonselor));
-  const badge = $('#guruBadge');
-  if (badge){
-    badge.classList.toggle('hidden', false);
-    if (isGuru) badge.textContent = `${GURU_NAMA}${GURU_KELAS.length ? ' · ' + GURU_KELAS.join(', ') : ' · Semua Kelas'}`;
-    else if (isKonselor) badge.textContent = `${KONSELOR_NAMA}${KONSELOR_KELAS.length ? ' · Konseling: ' + KONSELOR_KELAS.join(', ') : ' · Konseling: Semua Kelas'}`;
-    else badge.textContent = 'Admin BK';
-  }
+  updateRoleBadge();
   if (isGuru) goToPage('pelanggaran');
   else if (isKonselor) goToPage('konseling');
 }
