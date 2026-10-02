@@ -47,7 +47,7 @@
     <input id="apiTokenInput" type="password" placeholder="Sesuai ACCESS_TOKEN di Script Properties" />
     <button id="apiUrlSave" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk sebagai Admin/Guru BK</button>
     <p class="setup-note">URL &amp; token ini hanya disimpan di browser kamu (localStorage), tidak dikirim ke mana-mana kecuali ke Web App Google Apps Script milikmu sendiri. Lihat README untuk cara membuatnya.</p>
-    <button type="button" class="btn btn-ghost btn-block pwa-install-btn hidden"><i class="fa-solid fa-download"></i> Pasang Aplikasi di Perangkat</button>
+    <button type="button" class="btn btn-ghost btn-block pwa-install-btn"><i class="fa-solid fa-download"></i> Pasang Aplikasi di Perangkat</button>
     <a href="#" id="showGuruLoginLink" class="setup-switch-link">Login sebagai Guru Mapel →</a>
     <a href="#" id="showKonselorLoginLink" class="setup-switch-link">Login sebagai Guru BK (Konselor) →</a>
   </div>
@@ -62,6 +62,7 @@
     <input id="guruPasswordInput" type="password" autocomplete="current-password" placeholder="Password dari Guru BK" />
     <button id="guruLoginBtn" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk</button>
     <p class="setup-note" id="guruLoginNote">Belum punya akun? Hubungi Guru BK di sekolahmu untuk didaftarkan.</p>
+    <button type="button" class="btn btn-ghost btn-block pwa-install-btn"><i class="fa-solid fa-download"></i> Pasang Aplikasi di Perangkat</button>
     <a href="#" id="showKonselorLoginFromGuruLink" class="setup-switch-link">Login sebagai Guru BK (Konselor) →</a>
     <a href="#" id="showAdminLoginLink" class="setup-switch-link">← Masuk sebagai Admin/Guru BK</a>
   </div>
@@ -77,6 +78,7 @@
     <input id="konselorPasswordInput" type="password" autocomplete="current-password" placeholder="Password atau PIN dari Admin/Guru BK" />
     <button id="konselorLoginBtn" class="btn btn-primary btn-block"><i class="fa-solid fa-arrow-right-to-bracket"></i> Masuk</button>
     <p class="setup-note">Setelah masuk, kamu hanya bisa melihat &amp; mencatat Konseling untuk siswa di kelas yang menjadi tanggung jawabmu. Belum punya akun? Hubungi Admin/Guru BK di sekolahmu.</p>
+    <button type="button" class="btn btn-ghost btn-block pwa-install-btn"><i class="fa-solid fa-download"></i> Pasang Aplikasi di Perangkat</button>
     <a href="#" id="showGuruLoginFromKonselorLink" class="setup-switch-link">← Login sebagai Guru Mapel</a>
     <a href="#" id="showAdminLoginLink2" class="setup-switch-link">← Masuk sebagai Admin/Guru BK</a>
   </div>
@@ -104,7 +106,7 @@
     <div class="sidebar-foot">
       <button id="guruAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button id="konselorAccountsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
-      <button class="nav-item nav-item--ghost pwa-install-btn hidden" type="button"><i class="fa-solid fa-download"></i><span>Pasang Aplikasi</span></button>
+      <button class="nav-item nav-item--ghost pwa-install-btn" type="button"><i class="fa-solid fa-download"></i><span>Pasang Aplikasi</span></button>
       <button id="settingsBtn" class="nav-item nav-item--ghost"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button id="logoutBtn" class="nav-item nav-item--ghost hidden"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>
@@ -432,6 +434,7 @@
       <a href="#kenaikan" class="nav-item" data-page="kenaikan"><i class="fa-solid fa-arrow-up-right-dots"></i><span>Kenaikan &amp; Kelulusan</span></a>
       <button class="nav-item nav-item--ghost" id="guruAccountsBtnMobile"><i class="fa-solid fa-users-gear"></i><span>Akun Guru Mapel</span></button>
       <button class="nav-item nav-item--ghost" id="konselorAccountsBtnMobile"><i class="fa-solid fa-user-shield"></i><span>Akun Guru BK (Konselor)</span></button>
+      <button class="nav-item nav-item--ghost pwa-install-btn" type="button"><i class="fa-solid fa-download"></i><span>Pasang Aplikasi</span></button>
       <button class="nav-item nav-item--ghost" id="settingsBtnMobile"><i class="fa-solid fa-gear"></i><span>Pengaturan</span></button>
       <button class="nav-item nav-item--ghost hidden" id="logoutBtnMobile"><i class="fa-solid fa-right-from-bracket"></i><span>Keluar</span></button>
     </div>
