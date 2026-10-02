@@ -133,22 +133,46 @@
   }
 
   // ---------- tombol Install ----------
+  /* Tombol "Pasang Aplikasi" SELALU tampil (Admin, Guru BK/Konselor, Guru Mapel,
+     di layar login maupun di dalam aplikasi) — tidak pernah disembunyikan,
+     walau aplikasi sudah terpasang atau browser belum mengirim prompt install.
+     Yang berubah hanya aksi saat diklik (lihat handler di bawah). */
   function refreshInstallButtons(){
-    const show = !isStandalone() && (deferredPrompt || isIOS);
-    document.querySelectorAll('.pwa-install-btn').forEach(b => b.classList.toggle('hidden', !show));
+    // Hanya sentuh class kalau memang ada 'hidden' (supaya MutationObserver di bawah tidak memicu dirinya sendiri terus-menerus)
+    document.querySelectorAll('.pwa-install-btn.hidden').forEach(b => b.classList.remove('hidden'));
   }
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; refreshInstallButtons(); });
-  window.addEventListener('appinstalled', () => { deferredPrompt = null; refreshInstallButtons(); });
+  window.addEventListener('appinstalled', () => {
+    deferredPrompt = null; refreshInstallButtons();
+    alert('Aplikasi berhasil dipasang. Buka lewat ikon di perangkat kamu.');
+  });
+  // Jaga-jaga: kalau ada kode lain (mis. applyRoleUI) menyembunyikan tombolnya, munculkan lagi.
+  new MutationObserver(refreshInstallButtons).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('.pwa-install-btn');
     if (!btn) return;
     e.preventDefault();
     if (deferredPrompt){
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice.catch(() => {});
-      deferredPrompt = null; refreshInstallButtons();
-    } else if (isIOS){
+      const dp = deferredPrompt;
+      deferredPrompt = null; // prompt hanya bisa dipakai sekali
+      try{ dp.prompt(); await dp.userChoice; }catch(err){}
+      refreshInstallButtons();
+      return;
+    }
+    if (isStandalone()){
+      alert('Aplikasi BK Digital sudah terpasang dan sedang kamu buka dari aplikasinya.\n\nKalau mau memasangnya di perangkat lain, buka alamat web ini di perangkat tersebut lalu tekan tombol Pasang Aplikasi.');
+      return;
+    }
+    if (isIOS){
       alert('Cara memasang di iPhone/iPad:\n1. Buka lewat Safari\n2. Ketuk tombol Bagikan (kotak dengan panah ke atas)\n3. Pilih "Tambah ke Layar Utama"');
+      return;
+    }
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid){
+      alert('Cara memasang di Android (Chrome):\n1. Ketuk menu titik tiga (⋮) di kanan atas\n2. Pilih "Instal aplikasi" / "Tambahkan ke layar utama"\n\nKalau pilihannya tidak ada, aplikasi kemungkinan sudah terpasang — cari ikon BK Digital di layar utama atau daftar aplikasi.');
+    } else {
+      alert('Cara memasang di komputer (Chrome/Edge):\n1. Klik ikon Instal di ujung kanan kolom alamat, atau menu titik tiga (⋮) > "Transmisikan, simpan, dan bagikan" > "Instal halaman sebagai aplikasi"\n\nKalau pilihannya tidak ada, aplikasi kemungkinan sudah terpasang — cari BK Digital di Start Menu / daftar aplikasi, atau buka lewat chrome://apps.');
     }
   });
 
