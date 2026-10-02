@@ -25,7 +25,7 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzn9eoSC-iyPSScB02T5VHSBMgV1HS1VBW3Kj5zPl3zYHLxCqFVfgI6twuwqD2TrY-K/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxm3pCCajy-04tSaF659wco4IGbmzfH_GBtzUMCI33OLmvFxogorKdhssGWF7vxqhd_/exec';
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -888,11 +888,20 @@ document.addEventListener('click', e => {
 });
 
 /* ---------------- KOMBOBOX PENCARIAN SISWA (dipakai di semua form: absensi, pelanggaran, dst) ---------------- */
+/* Daftar kelas yang boleh dipilih saat MENCATAT data lewat form. Konselor dengan kelas
+   tanggung jawab hanya melihat kelasnya sendiri (server tetap menolak kelas lain). */
+function writableKelasList(){
+  const all = uniqueClasses();
+  if (USER_ROLE !== 'konselor' || !KONSELOR_KELAS.length) return all;
+  const own = KONSELOR_KELAS.map(k => String(k).trim().toLowerCase());
+  return all.filter(c => own.includes(String(c).trim().toLowerCase()));
+}
 function siswaPickerFilter(wrap, query){
   const q = (query||'').trim().toLowerCase();
   const kelasSel = wrap.querySelector('.siswa-picker-kelas');
   const kelas = kelasSel ? kelasSel.value : '';
-  let list = STATE.siswa;
+  const allowed = writableKelasList();
+  let list = STATE.siswa.filter(s => allowed.includes(s.Kelas));
   if (kelas) list = list.filter(s => s.Kelas === kelas);
   return list.filter(s => !q ||
     (s.Nama||'').toLowerCase().includes(q) ||
@@ -912,6 +921,7 @@ function siswaPickerRenderDropdown(wrap, query){
   dd.classList.add('open');
 }
 document.addEventListener('input', e => {
+  if (e.target.name === 'NamaOrtuWali') e.target.dataset.auto = '0'; // diketik manual -> jangan ditimpa otomatis
   if (!e.target.classList.contains('siswa-picker-input')) return;
   const wrap = e.target.closest('.siswa-picker');
   wrap.querySelector('input[type=hidden]').value = '';
@@ -942,7 +952,10 @@ document.addEventListener('click', e => {
     wrap.querySelector('.siswa-picker-dropdown').classList.remove('open');
     // Form Kolaborasi: isi otomatis Nama Orang Tua/Wali dari data siswa (hanya kalau masih kosong)
     const ortuInput = wrap.closest('form') && wrap.closest('form').querySelector('input[name="NamaOrtuWali"]');
-    if (ortuInput && !ortuInput.value.trim()) ortuInput.value = s.NamaOrtu || '';
+    if (ortuInput && (!ortuInput.value.trim() || ortuInput.dataset.auto === '1')){
+      ortuInput.value = s.NamaOrtu || '';
+      ortuInput.dataset.auto = '1'; // terisi otomatis: boleh diganti lagi kalau pilih siswa lain
+    }
     return;
   }
   $all('.siswa-picker-dropdown.open').forEach(dd => {
@@ -1415,7 +1428,7 @@ function openForm(type, id, prefill){
     if (f.type === 'select-siswa'){
       const selSiswa = val ? siswaById(val) : null;
       const displayVal = selSiswa ? `${selSiswa.Nama} — ${selSiswa.Kelas||'-'}` : '';
-      const kelasOpts = uniqueClasses().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      const kelasOpts = writableKelasList().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
       return `<div class="${wrapClass}"><label>${f.label}</label>
         <div class="siswa-picker">
           <div class="siswa-picker-row">
