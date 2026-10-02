@@ -25,7 +25,23 @@ const STATE = { siswa:[], absensi:[], pelanggaran:[], konseling:[], kolaborasi:[
    situs ini (lihat PANDUAN-UPDATE.md), supaya guru mapel tidak perlu tahu atau
    menempel URL Apps Script sama sekali. Kalau dikosongkan, layar Admin BK tetap
    bisa mengisi URL secara manual seperti sebelumnya (mode lama tidak rusak). */
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxm3pCCajy-04tSaF659wco4IGbmzfH_GBtzUMCI33OLmvFxogorKdhssGWF7vxqhd_/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzy7zvyVxqgdTyYVyaHvs4I0E1h7YldvVKDDAJFRhfeBKcR8-GUAbFt2KWxfrakZCz2/exec';
+
+/* URL Web App yang pernah tersimpan di browser (localStorage) dulu SELALU menang atas
+   DEFAULT_API_URL, jadi setelah URL di file ini diganti, browser yang sudah pernah login
+   tetap memanggil server LAMA (akibatnya login gagal walau kode sudah diperbarui).
+   Sekarang URL & sesi lama dibuang otomatis kalau DEFAULT_API_URL berubah dari yang
+   terakhir dipakai browser ini. Pengguna cukup login ulang satu kali. */
+(function reconcileApiUrl(){
+  if (!DEFAULT_API_URL) return;
+  try{
+    if (localStorage.getItem('bk_api_url_snapshot') !== DEFAULT_API_URL){
+      ['bk_api_url','bk_api_token','bk_role','bk_guru_nama','bk_guru_kelas','bk_konselor_nama','bk_konselor_kelas']
+        .forEach(k => localStorage.removeItem(k));
+      localStorage.setItem('bk_api_url_snapshot', DEFAULT_API_URL);
+    }
+  }catch(e){}
+})();
 
 let API_URL = localStorage.getItem('bk_api_url') || DEFAULT_API_URL;
 let API_TOKEN = localStorage.getItem('bk_api_token') || '';
@@ -75,6 +91,16 @@ function renderSchoolProfile(){
 }
 
 /* ---------------- ADAPTER: real Apps Script vs offline demo ---------------- */
+/* Backend versi lama menolak aksi login dengan pesan "Token akses salah atau kosong".
+   Pesan itu tidak ada di Code.gs terbaru, jadi kalau muncul berarti server yang
+   dipanggil belum memakai Code.gs terbaru / belum di-deploy ulang. */
+function explainLoginError(msg){
+  if (/token akses salah|periksa pengaturan koneksi/i.test(String(msg || ''))){
+    return 'Server (Google Apps Script) masih memakai kode lama. Admin: tempel Code.gs terbaru, lalu Deploy > Manage deployments > New version.';
+  }
+  return msg || 'Gagal login';
+}
+
 const RealAdapter = {
   /* Login Guru Mapel: hanya kirim username & password (tidak pernah URL/token
      master), backend membalas sessionToken terbatas yang lalu dipakai sebagai
@@ -82,7 +108,7 @@ const RealAdapter = {
   async loginGuru(username, password){
     const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginGuru', username, password }) });
     const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal login');
+    if (!json.ok) throw new Error(explainLoginError(json.error));
     return json.data;
   },
   /* Login Konselor (Guru BK per-kelas): sama alurnya dengan loginGuru, hanya
@@ -90,7 +116,7 @@ const RealAdapter = {
   async loginKonselor(username, password){
     const res = await fetch(API_URL, { method:'POST', body: JSON.stringify({ action:'loginKonselor', username, password }) });
     const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Gagal login');
+    if (!json.ok) throw new Error(explainLoginError(json.error));
     return json.data;
   },
   async getAll(type){
