@@ -773,25 +773,82 @@ document.addEventListener('click', e => {
 });
 
 /* ---------------- DROPDOWN JENIS PELANGGARAN (dari Template Pelanggaran) ---------------- */
-document.addEventListener('change', e => {
-  if (!e.target.classList.contains('jenis-pelanggaran-select')) return;
-  const wrap = e.target.closest('.jenis-pelanggaran-picker');
-  const hidden = wrap.querySelector('input[type=hidden]');
-  const customInput = wrap.querySelector('.jenis-pelanggaran-custom');
-  const form = wrap.closest('form');
+function closeJenisPanels(except){
+  document.querySelectorAll('.jenis-pelanggaran-picker').forEach(p => {
+    if (p === except) return;
+    const panel = p.querySelector('.jp-panel');
+    if (panel && !panel.classList.contains('hidden')){
+      panel.classList.add('hidden');
+      p.querySelector('.jp-trigger').setAttribute('aria-expanded', 'false');
+      p.classList.remove('open');
+    }
+  });
+}
+document.addEventListener('click', e => {
+  const picker = e.target.closest('.jenis-pelanggaran-picker');
+  if (!picker){ closeJenisPanels(null); return; }
+  closeJenisPanels(picker);
+  const panel = picker.querySelector('.jp-panel');
+  const trigger = picker.querySelector('.jp-trigger');
+
+  if (e.target.closest('.jp-trigger')){
+    const willOpen = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !willOpen);
+    picker.classList.toggle('open', willOpen);
+    trigger.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen){
+      const search = panel.querySelector('.jp-search');
+      search.value = '';
+      panel.querySelectorAll('.jp-opt').forEach(o => o.classList.remove('hidden'));
+      panel.querySelector('.jp-empty').classList.add('hidden');
+      search.focus();
+      const sel = panel.querySelector('.jp-opt.selected');
+      if (sel) sel.scrollIntoView({ block: 'nearest' });
+    }
+    return;
+  }
+
+  const opt = e.target.closest('.jp-opt');
+  if (!opt) return;
+  const hidden = picker.querySelector('input[type=hidden]');
+  const customInput = picker.querySelector('.jenis-pelanggaran-custom');
+  const label = picker.querySelector('.jp-label');
+  const form = picker.closest('form');
   const poinInput = form ? form.querySelector('[name="Poin"]') : null;
-  if (e.target.value === '__custom__'){
+  panel.querySelectorAll('.jp-opt').forEach(o => o.classList.remove('selected'));
+  opt.classList.add('selected');
+  label.classList.remove('placeholder');
+  if (opt.dataset.value === '__custom__'){
+    label.textContent = '+ Jenis lainnya (ketik manual)';
     customInput.classList.remove('hidden');
     customInput.value = '';
     hidden.value = '';
     customInput.focus();
   } else {
+    label.innerHTML = opt.querySelector('.jp-opt-text').innerHTML + ' <b>(' + opt.querySelector('.jp-opt-poin').textContent + ')</b>';
     customInput.classList.add('hidden');
-    hidden.value = e.target.value;
-    const opt = e.target.selectedOptions[0];
-    const poin = opt ? opt.dataset.poin : '';
+    hidden.value = opt.dataset.value;
+    const poin = opt.dataset.poin;
     if (poinInput && poin !== undefined && poin !== '') poinInput.value = poin;
   }
+  panel.classList.add('hidden');
+  picker.classList.remove('open');
+  trigger.setAttribute('aria-expanded', 'false');
+});
+document.addEventListener('input', e => {
+  if (!e.target.classList.contains('jp-search')) return;
+  const panel = e.target.closest('.jp-panel');
+  const q = e.target.value.trim().toLowerCase();
+  let shown = 0;
+  panel.querySelectorAll('.jp-opt').forEach(o => {
+    const match = !q || o.textContent.toLowerCase().includes(q) || o.dataset.value === '__custom__';
+    o.classList.toggle('hidden', !match);
+    if (match && o.dataset.value !== '__custom__') shown++;
+  });
+  panel.querySelector('.jp-empty').classList.toggle('hidden', shown > 0);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeJenisPanels(null);
 });
 document.addEventListener('input', e => {
   if (!e.target.classList.contains('jenis-pelanggaran-custom')) return;
@@ -1510,11 +1567,18 @@ function openForm(type, id, prefill){
       const isCustom = !!val && !matched;
       return `<div class="${wrapClass}"><label>${f.label}</label>
         <div class="jenis-pelanggaran-picker">
-          <select class="jenis-pelanggaran-select" ${master.length ? '' : 'disabled'}>
-            <option value="">${master.length ? 'Pilih jenis pelanggaran...' : 'Belum ada Template Pelanggaran'}</option>
-            ${master.map(m => `<option value="${escapeHtml(m.JenisPelanggaran)}" data-poin="${escapeHtml(String(m.Poin ?? ''))}" ${m.JenisPelanggaran===val?'selected':''}>${escapeHtml(m.JenisPelanggaran)} (${escapeHtml(String(m.Poin ?? 0))} poin)</option>`).join('')}
-            <option value="__custom__" ${isCustom?'selected':''}>+ Jenis lainnya (ketik manual)</option>
-          </select>
+          <button type="button" class="jp-trigger${master.length ? '' : ' disabled'}" ${master.length ? '' : 'disabled'} aria-haspopup="listbox" aria-expanded="false">
+            <span class="jp-label${(matched || isCustom) ? '' : ' placeholder'}">${matched ? `${escapeHtml(matched.JenisPelanggaran)} <b>(${escapeHtml(String(matched.Poin ?? 0))} poin)</b>` : (isCustom ? '+ Jenis lainnya (ketik manual)' : (master.length ? 'Pilih jenis pelanggaran...' : 'Belum ada Template Pelanggaran'))}</span>
+            <i class="fa-solid fa-chevron-down jp-chevron"></i>
+          </button>
+          <div class="jp-panel hidden">
+            <input type="text" class="jp-search" placeholder="Cari jenis pelanggaran..." autocomplete="off" />
+            <ul class="jp-list" role="listbox">
+              ${master.map(m => `<li class="jp-opt${m.JenisPelanggaran===val?' selected':''}" role="option" data-value="${escapeHtml(m.JenisPelanggaran)}" data-poin="${escapeHtml(String(m.Poin ?? ''))}"><span class="jp-opt-text">${escapeHtml(m.JenisPelanggaran)}</span><b class="jp-opt-poin">${escapeHtml(String(m.Poin ?? 0))} poin</b></li>`).join('')}
+              <li class="jp-opt jp-opt-custom${isCustom?' selected':''}" role="option" data-value="__custom__"><span class="jp-opt-text">+ Jenis lainnya (ketik manual)</span></li>
+            </ul>
+            <div class="jp-empty hidden">Tidak ada yang cocok.</div>
+          </div>
           <input type="text" class="jenis-pelanggaran-custom${isCustom?'':' hidden'}" placeholder="Ketik jenis pelanggaran lainnya..." value="${isCustom?escapeHtml(val):''}" />
           <input type="hidden" name="${f.key}" value="${escapeHtml(val||'')}" />
         </div>
